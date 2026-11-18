@@ -157,6 +157,12 @@ plan.yml dispatch from the app's button, MBTA stop lookup, TransitMatters, predi
 4. **Iterate on the web app** with the user on their phone (iOS 18 Safari, standalone mode). The user
    is open to more personalization.
 
+### Visual design
+Tried a transit-themed restyle (navy brand strip, departure-board "Leave" time, red buttons, rail-style trip legs) on
+2026-11-18; **the user found it uglier and had it reverted** (commit f7a1ba4, reverted). The original look stays. The user
+likes the layout/flow and loves the app icon. Don't restyle again without asking what specifically to change, and show a
+screenshot first (headless Chrome in a 390px iframe works).
+
 ### Gotchas
 - **Cron** is UTC with up to ~15 min start delay; `tick` tolerates starting 15 min early or late.
 - **Concurrency:** only `tick.yml` writes state, so `plan.yml` must stay read-only.
