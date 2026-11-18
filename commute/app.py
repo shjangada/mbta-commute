@@ -43,6 +43,7 @@ def parse_clock(tok, evening=False):
 LOCK_MIN = 10          # within this many minutes of leaving, the announced option is locked
 SWITCH_GAIN_MIN = 3    # ...unless another option gets you there this much earlier
 FAR_MIN = 20           # beyond this many minutes out, plans rest on padded (not predicted) trains
+ASAP_WINDOW_MIN = 8     # "leave ASAP": consider only options that start within this many minutes
 FAR_GAIN_MIN = 5       # so changes must be bigger to be announced
 
 
@@ -103,6 +104,11 @@ class App:
                 "arrive": o.get("arrive", parse_hm(p["arrive_by"])),
                 "leave_work": o.get("leave_work", parse_hm(p["leave_work_at"])),
                 "changed": bool(o)}
+
+    def asap(self, direction):
+        """True if you pressed "I want to leave ASAP" today for this direction."""
+        a = self.state.get("asap")
+        return bool(a and a.get("date") == str(now().date()) and a.get("dir") == direction)
 
     def expected_leave(self, d):
         plan = self.state.get("plans", {}).get(str(d))
@@ -296,6 +302,8 @@ class App:
                           if x["dep"] and x["rel"] not in DEAD and mins(x["dep"]) >= now_m - 1)
         trains = model.extend_trains(red_deps, s["red_nb_headway"], now_m + 90)
         opts = model.morning_options(now_m, buses, bway_arr, trains, s["red_nb"], s["bus_in"], c, deadline, earliest)
+        if self.asap("morning"):            # leave ASAP: only options that start within a few minutes
+            opts = [o for o in opts if o.leave <= now_m + ASAP_WINDOW_MIN] or opts
         best, earliest = model.pick_morning(opts)
         # For matching an announced option, ignore the `earliest` cut-off (an option can drift a minute past it)
         all_opts = model.morning_options(now_m, buses, bway_arr, trains, s["red_nb"], s["bus_in"], c, deadline) \
@@ -403,7 +411,12 @@ class App:
         def step(ctx):
             if self.fb.logged_today("morning", "left_home") and not state["left_train"]:
                 return True                       # you told us you've left
-            plan = self.morning_plan(earliest=planned - 10)    # stay near your planned leave time
+            pl = mins(now()) if self.asap("morning") else planned   # ASAP: you're ready now
+            a = self.state.get("asap")
+            if a and a.get("fresh") and self.asap("morning"):      # just pressed: announce a fresh plan right away
+                a["fresh"], state["prev"] = False, None
+                reminded.clear()
+            plan = self.morning_plan(earliest=pl - 10)         # stay near your planned leave time
             now_m, best = plan["now"], plan["best"]
             if state["left_train"] and now_m > state["left_train"] + 2:
                 return True
@@ -416,7 +429,7 @@ class App:
                         x["trip"] == told.trip for x in plan["cancelled"]):
                     cur = told    # it only dropped out because its leave time slipped a hair into the past: say "leave now"
                 if told is None:
-                    msgs.insert(0, "Plan: " + self.describe(best))
+                    msgs.insert(0, ("⚡ Leaving ASAP: " if self.asap("morning") else "Plan: ") + self.describe(best))
                     told = cur = state["prev"] = best
                 else:
                     ref = cur or told
@@ -534,6 +547,8 @@ class App:
             return None
         lw = self.day(now().date())["leave_work"]
         window = [r for r in sims if lw - 10 <= r["leave_office"] <= lw + 20] or sims[:2]
+        if self.asap("home"):               # leave ASAP: the first train you can make, not the least waiting
+            window = [r for r in sims if r["leave_office"] <= now_m + ASAP_WINDOW_MIN] or sims[:1]
         best = min(window, key=lambda r: (round(r["door_to_door"]), r["leave_office"]))
         if prefer is not None:
             same = [r for r in window if abs(r["train"] - prefer) < 1]
@@ -581,19 +596,24 @@ class App:
 
     def watch_home(self):
         lw = self.day(now().date())["leave_work"]
+        end_m = max(lw, mins(now())) + 45
         seen, reminded = set(), set()
         state = {"prev": None, "announced": False, "left": None}
 
         def step(ctx):
             if self.fb.logged_today("home", "left_desk"):
                 return True
+            a = self.state.get("asap")
+            if a and a.get("fresh") and self.asap("home"):         # just pressed: announce right away
+                a["fresh"], state["prev"] = False, None
+                reminded.clear()
             h = self.compute_home(prefer=state["prev"]["train"] if state["prev"] else None)
             now_m, best = h["now"], h["best"]
             if state["left"] and now_m > state["left"] + 3:
                 return True
             msgs = self.fresh_notes(h["notes"], seen)
             prio = 4 if any(m.startswith(("❌", "⚠")) for m in msgs) else 3
-            if best and not state["left"] and now_m >= lw - 25:
+            if best and not state["left"] and (now_m >= lw - 25 or self.asap("home")):
                 told = state["prev"]
                 if told is None:
                     msgs.insert(0, "Way home: " + self.describe_home(best))
@@ -619,7 +639,7 @@ class App:
                                  buttons=self.home_buttons())
             return False
 
-        self._watch("home", step, lw + 45)
+        self._watch("home", step, end_m)
 
     # ================================================================ your phone ↔ the planner
     def plan_hook(self, direction):
@@ -656,6 +676,16 @@ class App:
                 self.save_state()
                 self.notify.push("Notifications are on", "You'll get commute alerts here.", priority=2)
                 return
+            if cmd in ("asap morning", "asap home"):
+                if time.time() - ts > 30 * 60:      # a stale tap from hours ago must not start a watch
+                    return
+                d = cmd.split()[1]
+                self.state["asap"] = {"date": str(now().date()), "dir": d, "fresh": True}
+                self.state.pop("morning_done" if d == "morning" else "home_done", None)   # (re)start the watcher
+                self.save_state()
+                return
+            if cmd.startswith("today") and "default" in cmd:
+                self.state.pop("asap", None)
             if cmd in ("plan_morning", "plan", "plan_home", "night", "accuracy", "ping", "status"):
                 if time.time() - ts > 150:      # an old "plan now" request is useless now
                     return
@@ -729,14 +759,14 @@ class App:
             st["night_sent"] = str(today)
             self.save_state()
             self.night(today + dt.timedelta(days=1))
-        if not d["off"] and st.get("morning_done") != str(today):
+        if (not d["off"] or self.asap("morning")) and st.get("morning_done") != str(today):
             start = self.expected_leave(today) - lead
-            if start - 15 <= now_m < d["arrive"] + 5:      # cron can run a bit early or late
+            if start - 15 <= now_m < d["arrive"] + 5 or self.asap("morning"):      # cron can run a bit early or late
                 self.watch_morning()
                 st["morning_done"] = str(today)
                 self.save_state()
-        if not d["off"] and st.get("home_done") != str(today):
-            if d["leave_work"] - lead - 15 <= now_m < d["leave_work"] + 40:
+        if (not d["off"] or self.asap("home")) and st.get("home_done") != str(today):
+            if d["leave_work"] - lead - 15 <= now_m < d["leave_work"] + 40 or self.asap("home"):
                 self.watch_home()
                 st["home_done"] = str(today)
                 self.save_state()

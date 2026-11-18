@@ -116,6 +116,7 @@ nav button::before { content: ""; display: block; height: 3px; margin: 0 auto 5p
     <div class="fresh muted"><span class="dot" id="dot"></span><span id="fresh">Loading…</span></div>
     <div id="nowBody"></div>
     <button class="primary" id="planBtn">Find my optimal path</button>
+    <div class="row"><button class="ghost" id="asapBtn">⚡ I want to leave ASAP</button></div>
     <div id="tomorrowCard"></div>
   </section>
 
@@ -294,6 +295,27 @@ async function planNow() {
   let n = 0; const iv = setInterval(() => { loadStatus(); if (++n > 12) clearInterval(iv); }, 15000);
 }
 
+// "I want to leave ASAP": tell the planner you're ready now. A live watcher picks it up within a minute; otherwise
+// start the tick workflow so the watch begins right away (the planner only reads commands when it runs).
+async function asapNow() {
+  const what = dir === "morning" ? "morning" : "home";
+  const live = status && status.watch && Date.now() / 1000 - status.t < 12 * 60;
+  send(`asap ${what}`);
+  if (live) { toast("Told the live watcher. Your fastest way is on its way."); }
+  else if (cfg.repo && cfg.token) {
+    setTimeout(async () => {
+      try {
+        const r = await fetch(`https://api.github.com/repos/${cfg.repo}/actions/workflows/tick.yml/dispatches`, {
+          method: "POST", headers: { Authorization: `Bearer ${cfg.token}`, Accept: "application/vnd.github+json" },
+          body: JSON.stringify({ ref: "main" }) });
+        if (r.status !== 204) throw new Error(r.status);
+      } catch (e) { toast(`Couldn’t start the watch on GitHub (${e.message}). It will start at the next scheduled check.`); }
+    }, 3000);
+    toast("Starting now. You’ll get a notification in about a minute.");
+  } else { toast("Sent. It starts at the next scheduled check (up to 15 min). Add a GitHub token for instant."); return; }
+  let n = 0; const iv = setInterval(() => { loadStatus(); if (++n > 12) clearInterval(iv); }, 15000);
+}
+
 // ---------------------------------------------------------------- TRIP
 let trip = store.get("trip", null);   // {dir, steps:[[step, ts]], walking}
 if (trip && Date.now() / 1000 - trip.steps[0][1] > 3 * 3600) { trip = null; store.set("trip", null); }
@@ -442,6 +464,7 @@ document.querySelector("nav").addEventListener("click", (e) => { const t = e.tar
 $("segM").onclick = () => { dir = "morning"; render(); };
 $("segH").onclick = () => { dir = "home"; render(); };
 $("planBtn").onclick = planNow;
+$("asapBtn").onclick = asapNow;
 $("tripBody").addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.id === "undoBtn") return undo();

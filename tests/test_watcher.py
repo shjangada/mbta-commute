@@ -72,20 +72,22 @@ class FakeHist:
         return 4.5
 
 
-def run(seed):
+def run(seed, asap=None, start=(7, 50)):
     tmp = tempfile.mkdtemp()
     cfg = open(os.path.join(ROOT, "config.example.toml")).read().replace('status_topic = "FROM-KEYGEN"', 'status_topic = "x"')
     open(f"{tmp}/config.toml", "w").write(cfg)
     cwd = os.getcwd()
     os.chdir(tmp)
     try:
-        CLOCK["t"] = real_now().replace(hour=7, minute=50, second=0, microsecond=0)
+        CLOCK["t"] = real_now().replace(hour=start[0], minute=start[1], second=0, microsecond=0)
         a = appmod.App("config.toml", dry_run=True)
         a.mbta, a.hist = JitterMBTA(seed), FakeHist()
         a.setup()
         sent = []
         a.notify.push = lambda title, msg, **k: sent.append((util.mins(CLOCK["t"]), msg))
-        a.watch_morning()
+        if asap:
+            a.handle(f"asap {asap}")
+        (a.watch_home if asap == "home" else a.watch_morning)()
         return sent
     finally:
         os.chdir(cwd)
@@ -107,6 +109,22 @@ if __name__ == "__main__":
         worst = max(worst, len(plan_msgs))
         assert len(changes) <= 1 and len(leave_in) <= 1, "flip-flopping or a stale reminder"
         assert len(leave_now) == 1, "must say 'leave now' exactly once"
+    # "I want to leave ASAP": mid-morning press, well before the planned leave time
+    for seed in range(4):
+        sent = run(seed, asap="morning", start=(8, 5))
+        first_t, first = sent[0]
+        now_leave = [(t, m) for t, m in sent if "Leave now" in m]
+        assert "⚡ Leaving ASAP" in first, first
+        assert now_leave and now_leave[0][0] <= 8 * 60 + 5 + 12, f"ASAP should leave within ~10 min: {sent}"
+        assert len(now_leave) == 1
+    print("ASAP morning OK")
+    for seed in range(4):
+        sent = run(seed, asap="home", start=(14, 0))
+        first_t, first = sent[0]
+        assert "Way home:" in first, first
+        now_leave = [(t, m) for t, m in sent if "Leave your desk now" in m]
+        assert now_leave and now_leave[0][0] <= 14 * 60 + 12, f"ASAP home should leave within ~10 min: {sent}"
+    print("ASAP home OK")
     print("worst non-gap message count:", worst)
     assert worst <= 5, f"too chatty ({worst})"
     print("WATCHER OK")

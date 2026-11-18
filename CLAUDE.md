@@ -163,6 +163,13 @@ Tried a transit-themed restyle (navy brand strip, departure-board "Leave" time, 
 likes the layout/flow and loves the app icon. Don't restyle again without asking what specifically to change, and show a
 screenshot first (headless Chrome in a 390px iframe works).
 
+### "I want to leave ASAP" (added 2026-11-18)
+Now-tab button (direction-aware) sends `asap morning|home`. The planner (`App.asap`, state["asap"], today only) then:
+treats you as ready now, considers only options starting within `ASAP_WINDOW_MIN` (8) minutes, announces "⚡ Leaving ASAP: …"
+immediately, starts the watcher even outside its normal window or on a day off, and `today default` clears it. The app also
+dispatches `tick.yml` (needs the GitHub token) so it begins in ~1 min; a live watcher reads the command within a minute.
+Commands older than 30 min are ignored. Tested in tests/test_watcher.py.
+
 ### Gotchas
 - **Cron** is UTC with up to ~15 min start delay; `tick` tolerates starting 15 min early or late.
 - **Concurrency:** only `tick.yml` writes state, so `plan.yml` must stay read-only.
