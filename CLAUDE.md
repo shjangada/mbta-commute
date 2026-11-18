@@ -121,8 +121,9 @@ published only on change plus a 10-min heartbeat.
   `python3 tests/test_offline.py` and `python3 tests/test_watcher.py` (needs `pip install cryptography pywebpush` locally)
 - `config.example.toml`: all settings. The real config lives only in the `CONFIG_TOML` Actions secret.
 
-## Status: live APIs verified 2026-11-18, GitHub deploy + iPhone push still pending
-Verified live: MBTA stop lookup, TransitMatters, predictions (incl. CANCELLED/ADDED), ntfy publish/poll.
+## Status: live 2026-11-18. APIs, GitHub Pages deploy and iPhone web push all verified
+Verified live: web push to the iPhone (iOS 18, home-screen app; test push from a laptop arrived), Pages deploy,
+plan.yml dispatch from the app's button, MBTA stop lookup, TransitMatters, predictions (incl. CANCELLED/ADDED), ntfy publish/poll.
 - **Fixed:** Broadway bus stops have no `parent_station` in the live API (`setup` found none). Now matched by
   name "Broadway Station". Bus stop ids: inbound F St `159`, Broadway in `150`, out `150`+`151`.
 - **TM bus history is current** (9 data through the same day, ~100 trips/day, 29 weekdays cached). The synthetic
@@ -135,7 +136,8 @@ Verified live: MBTA stop lookup, TransitMatters, predictions (incl. CANCELLED/AD
   messages now comes from `bus_stop_match`).
 
 ### Next tasks, in order
-1. **Go live, verify each external call:**
+1. ~~**Go live, verify each external call**~~ **DONE 2026-11-18** (remaining: first `tick` run must consume the
+   phone's `subscribe` message so the planner stores it in state/state.enc):
    - `python -m commute setup` resolves the F St stop id.
    - TM `/api/traveltimes` returns data for `70082→70072` and `9-1-45→9-1-150` (check bus-data lag).
    - Predictions and `include=schedule` parse correctly.
