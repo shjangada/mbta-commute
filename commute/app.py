@@ -40,6 +40,12 @@ def parse_clock(tok, evening=False):
     return h * 60 + mi
 
 
+LOCK_MIN = 10          # within this many minutes of leaving, the announced option is locked
+SWITCH_GAIN_MIN = 3    # ...unless another option gets you there this much earlier
+FAR_MIN = 20           # beyond this many minutes out, plans rest on padded (not predicted) trains
+FAR_GAIN_MIN = 5       # so changes must be bigger to be announced
+
+
 class App:
     def __init__(self, config_path="config.toml", dry_run=False, readonly=False):
         self.cfg = cfg = tomllib.loads(pathlib.Path(config_path).read_text())
@@ -268,6 +274,7 @@ class App:
 
     # ================================================================ 2) morning, live
     def morning_plan(self, earliest=None):
+        earliest_arg = earliest
         ids, c, now_m = self._need_ids(), self.c, mins(now())
         s = self.samples()
         deadline = self.day(now().date())["arrive"]
@@ -290,6 +297,9 @@ class App:
         trains = model.extend_trains(red_deps, s["red_nb_headway"], now_m + 90)
         opts = model.morning_options(now_m, buses, bway_arr, trains, s["red_nb"], s["bus_in"], c, deadline, earliest)
         best, earliest = model.pick_morning(opts)
+        # For matching an announced option, ignore the `earliest` cut-off (an option can drift a minute past it)
+        all_opts = model.morning_options(now_m, buses, bway_arr, trains, s["red_nb"], s["bus_in"], c, deadline) \
+            if earliest_arg is not None else opts
         gap = self.cfg["prefs"]["red_gap_alert_min"]
         gaps = [(a, b) for a, b in zip(red_deps, red_deps[1:]) if b - a >= gap and a <= now_m + 35]
         notes = [(f"c:{x['trip']}", f"❌ {'The ' + hm(mins(x['sched'])) if x['sched'] else 'A'} 9 bus is cancelled.")
@@ -302,8 +312,18 @@ class App:
             "legs": [[k, round(a, 1), round(b, 1)] for k, a, b in best.legs(c)] if best else [],
             "leave": hm(best.leave, "floor") if best else None, "arrive": hm(best.arrive, "ceil") if best else None,
         }
-        return {"best": best, "earliest": earliest, "cancelled": cancelled, "gaps": gaps, "alerts": alerts,
+        return {"best": best, "earliest": earliest, "opts": all_opts, "cancelled": cancelled, "gaps": gaps, "alerts": alerts,
                 "now": now_m, "deadline": deadline, "notes": notes}
+
+    @staticmethod
+    def same_option(told, opts):
+        """Today's version of an option we already announced: the same bus trip, or the walk for the same train."""
+        if told is None:
+            return None
+        if told.mode == "bus":
+            return next((o for o in opts if o.mode == "bus" and o.trip == told.trip), None)
+        near = [o for o in opts if o.mode == "walk" and abs(o.train_dep - told.train_dep) < 3]
+        return min(near, key=lambda o: abs(o.train_dep - told.train_dep)) if near else None
 
     def describe(self, o):
         if o is None:
@@ -390,32 +410,55 @@ class App:
             msgs = self.fresh_notes(plan["notes"], seen)
             prio = 4 if any(m.startswith(("❌", "⚠")) for m in msgs) else 3
             if not state["left_train"] and best:
-                key = (best.mode, best.trip, round(best.train_dep))
                 told = state["prev"]
-                to_go = best.leave - now_m
-                if ctx["first"] or told is None:
+                cur = self.same_option(told, plan["opts"]) if told else None   # today's version of what we announced
+                if told and cur is None and told.leave - now_m <= 1 and told.leave >= now_m - 1.5 and not any(
+                        x["trip"] == told.trip for x in plan["cancelled"]):
+                    cur = told    # it only dropped out because its leave time slipped a hair into the past: say "leave now"
+                if told is None:
                     msgs.insert(0, "Plan: " + self.describe(best))
-                    state["prev"] = best
+                    told = cur = state["prev"] = best
                 else:
-                    shift = best.leave - told.leave
-                    changed = (best.mode != told.mode or abs(shift) >= 2 or abs(best.arrive - told.arrive) >= 2)
-                    # Leaving EARLIER is urgent: always tell you. LATER can wait: only within 20 min of leaving,
-                    # and at most every 5 min (a bus that keeps slipping shouldn't buzz you every minute).
-                    urgent = shift <= -2 or best.mode != told.mode
-                    later_ok = to_go <= 20 and now_m - state.get("told_at", -99) >= 5
-                    if changed and (urgent or later_ok):
+                    ref = cur or told
+                    to_go0 = ref.leave - now_m
+                    # Predictions only reach ~30 min out; further ahead the trains are padded with the typical
+                    # headway, so that part of the plan wobbles. Don't announce wobble: be stricter when far out.
+                    gain = SWITCH_GAIN_MIN if to_go0 <= FAR_MIN else FAR_GAIN_MIN
+                    why = "switch"
+                    if cur is None:                      # announced bus cancelled/gone, or its train vanished
+                        switch = True
+                        if to_go0 > FAR_MIN and best.mode == told.mode and abs(best.leave - told.leave) < FAR_GAIN_MIN:
+                            told = state["prev"] = best    # the same plan, re-estimated: adopt silently
+                            cur, switch = best, False
+                    else:                                # locked/steady: only a clearly better way beats it
+                        switch = not self.same_option(cur, [best]) and best.arrive <= cur.arrive - gain
+                    if switch:
+                        msgs.insert(0, "🔄 " + ("Change of plan: " if cur is None else "Better option: ") + self.describe(best))
+                        told = cur = state["prev"] = best
                         state["told_at"] = now_m
-                        msgs.insert(0, f"🔄 Leave {'earlier' if shift < 0 else 'later'}: " + self.describe(best))
                         prio = max(prio, 4)
-                        state["prev"] = best
+                    elif cur is not None:
+                        shift = cur.leave - told.leave
+                        # same option, new timing. Earlier: always tell. Later: only near leaving, at most every 5 min.
+                        if shift <= -gain or (shift >= 3 and cur.leave - now_m <= FAR_MIN and now_m - state.get("told_at", -99) >= 5):
+                            msgs.insert(0, f"🔄 Leave {'earlier' if shift < 0 else 'later'}: " + self.describe(cur))
+                            state["prev"], state["told_at"] = cur, now_m
+                            prio = max(prio, 4)
+                        told = cur
+                    if told is None:
+                        told = best
+                # reminders only ever refer to the option we're currently telling you to take
+                key = (told.mode, told.trip if told.mode == "bus" else None)
+                to_go = (cur or told).leave - now_m
+                opt = cur or told
                 if 0.5 < to_go <= 3.5 and (key, 3) not in reminded:
                     reminded.add((key, 3))
                     msgs.insert(0, f"⏰ Leave in {max(1, round(to_go))} min.")
                     prio = max(prio, 4)
                 if to_go <= 0.5 and (key, 0) not in reminded:
                     reminded.add((key, 0))
-                    msgs = ["🚶 Leave now: " + self.describe(best)] + [m for m in msgs if not m.startswith(("🔄", "Plan"))]
-                    prio, state["left_train"] = 5, best.train_dep
+                    msgs = ["🚶 Leave now: " + self.describe(opt)] + [m for m in msgs if not m.startswith(("🔄", "Plan"))]
+                    prio, state["left_train"] = 5, opt.train_dep
             if msgs:
                 self.notify.push("Commute", "\n".join(msgs), priority=prio, tags=["bus"], tag="morning",
                                  buttons=self.morning_buttons())

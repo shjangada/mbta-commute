@@ -110,7 +110,7 @@ published only on change plus a 10-min heartbeat.
 - `docs/`: the web app (index.html, sw.js, manifest, icons)
 - `.github/workflows/`: `tick.yml` (scheduler, writes state) and `plan.yml` (on-demand, read-only)
 - `tests/test_offline.py`: fake MBTA/TM + fake clock, full end-to-end. **Run after every change:**
-  `python3 tests/test_offline.py` (needs `pip install cryptography pywebpush` locally)
+  `python3 tests/test_offline.py` and `python3 tests/test_watcher.py` (needs `pip install cryptography pywebpush` locally)
 - `config.example.toml`: all settings. The real config lives only in the `CONFIG_TOML` Actions secret.
 
 ## Status: live APIs verified 2026-11-18, GitHub deploy + iPhone push still pending
@@ -134,11 +134,14 @@ Verified live: MBTA stop lookup, TransitMatters, predictions (incl. CANCELLED/AD
    - ntfy poll/publish work.
    - Web push reaches the iPhone (VAPID `subject` must be a real `mailto:`). **Needs deploy first**: push repo,
      add `CONFIG_TOML` secret, enable Pages, install the PWA on the phone, tap Turn on notifications.
-2. **Fix the morning watcher's remaining flip-flopping.** In the last realistic offline run it sent ~10
-   messages, alternating bus/walk and earlier/later. Once within ~10 min of leaving it should **lock the
-   announced option** unless that bus is cancelled or gone, or a new option arrives ≥3 min earlier.
-   Mirror `pick_home`'s "prefer what we told you" stickiness. Also don't send "leave in 3 min" for an
-   option that's then replaced.
+2. ~~Fix the morning watcher's flip-flopping~~ **DONE** (`tests/test_watcher.py`, jittery fake predictions, 8 seeds:
+   worst case went from 22 messages to 5, 0 plan changes, exactly one "leave in" and one "leave now").
+   `watch_morning` now tracks the announced option (`same_option`: same bus trip, or walk for the train within 3 min)
+   and keeps it unless it is gone (cancelled/vanished) or another option arrives ≥3 min earlier (≥5 when more than
+   20 min from leaving, since beyond ~30 min trains are padded with the typical headway and wobble). Reminders
+   ("leave in", "leave now") only refer to the announced option. An option that slips a hair into the past within
+   1 min of leaving becomes "leave now" instead of being replaced. Matching ignores the `earliest` cut-off.
+   Not covered by a test: a cancelled announced bus mid-watch (code path exists: `cur is None` → "Change of plan").
 3. **First week:** watch the Actions logs (quiet mode: no personal data in public logs) and the cron
    start delays. Check the ntfy daily message count stays well under 250.
 4. **Iterate on the web app** with the user on their phone (iOS 18 Safari, standalone mode). The user
