@@ -72,11 +72,19 @@ published only on change plus a 10-min heartbeat.
   each train. Pick the shortest duration; a <1 min transfer is penalized. While watching, options must
   start ≥ planned leave − 10 (`earliest`) so an early watch doesn't say "leave now" an hour early.
   "Find my optimal path" uses earliest = now (the user is ready).
-- **Way home:** Monte Carlo (1,500 runs) per upcoming Kendall train. Inputs: Kendall→Broadway ride
-  samples, learned prediction error for the 9, schedule-only buses (marked *), cancellations.
-  Outputs: odds of catching each bus vs walking, and median/p80 home time.
-  `pick_home` = least door-to-door near `leave_work`, sticking with the train already announced
-  unless another is >1.5 min better.
+- **Way home (changed 2026-11-18):** the goal is **train → bus with minimal waiting**, not fastest door-to-door. Monte Carlo
+  (1,500 runs) per upcoming Kendall train. Inputs: Kendall→Broadway ride samples, learned prediction error for the 9,
+  schedule-only buses (marked *), cancellations. Per train it reports the bus you'd board, the median wait at the stop, and
+  `p_ready` = chance a bus is ready within 2 min (`READY_MIN`) of you reaching the stop. Walking only wins if it beats the
+  bus by more than `BUS_PREF_MIN` (3). `pick_home` = the train near `leave_work` with the highest `p_ready`, then least
+  wait, then earliest; it keeps the announced train unless another is ≥15 points more likely to connect.
+  Messages say plainly if walking is fastest if you leave right now, and separately when to leave for a bus.
+  Why the odds can look low: until the recorder has ≥12 real observations per lead bucket, bus lateness is a hand-set
+  guess (sd 0.6+0.15×lead min; schedule-only buses sd 3), so the chance of *that exact* bus is spread out. Real data
+  replaces it automatically (`accuracy` command shows what's been collected).
+- **Two way-home plans:** `status.home` = plan for your leave-work time (computed by tick and the watcher; before that
+  time it plans ~10 min ahead of it). `status.home_now` = on-demand "Find my best way home" plan. The app shows
+  `home_now` for 60 min (remembered on the phone, since later statuses don't carry it), then reverts to `home`.
 - **Notifications:** problems are deduped by identity (trip id, alert id; a Red gap drifting <6 min is
   the same gap). Plan changes compare against what was last *told*. Earlier = always tell. Later = only
   within 20 min of leaving, at most every 5 min. Then "leave in 3 min" and "leave now"
@@ -169,6 +177,12 @@ treats you as ready now, considers only options starting within `ASAP_WINDOW_MIN
 immediately, starts the watcher even outside its normal window or on a day off, and `today default` clears it. The app also
 dispatches `tick.yml` (needs the GitHub token) so it begins in ~1 min; a live watcher reads the command within a minute.
 Commands older than 30 min are ignored. Tested in tests/test_watcher.py.
+
+### App UI (decided 2026-11-18)
+Settings are behind a gear icon (top right), not a tab: 4 equal tabs (Now, Trip, Days, Learned). To work / Way home slides
+(thumb + content). Days: tap a time chip (hidden native time input), autosaves, "↺ Default" resets instantly (the phone
+keeps what you set until the planner's status catches up). Learned: icon rows with a value that updates as trips come in,
+fed by `status.learned` = [{k, v, n, p}] from `App.learned_rows()`. Tests: `node tests/test_ui.js <dir with jsdom>`.
 
 ### Gotchas
 - **Cron** is UTC with up to ~15 min start delay; `tick` tolerates starting 15 min early or late.

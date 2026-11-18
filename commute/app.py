@@ -18,7 +18,7 @@ from .history import History
 from .mbta import MBTA
 from .notify import Notifier, Ntfy
 from .recorder import ErrorModel, Recorder
-from .util import TZ, hm, log, mins, now, parse_hm, pct
+from .util import TZ, hm, log, median, mins, now, parse_hm, pct
 
 DEAD = ("CANCELLED", "SKIPPED")
 IMPORTANT = {"SHUTTLE", "SUSPENSION", "DETOUR", "STOP_CLOSURE", "STATION_CLOSURE", "DELAY",
@@ -80,7 +80,7 @@ class App:
         self.fb = Feedback(self.rec.db, prior_weight=fb.get("prior_weight", 2.0))
         self.ride_weight = fb.get("ride_weight", 5)
         self._cache_day, self._samples = None, {}
-        self.st = {"morning": None, "home": None}     # latest results, for the web app
+        self.st = {"morning": None, "home": None, "home_now": None}     # latest results, for the web app
         self.watching = None
         self._last_status = (None, 0)
 
@@ -480,10 +480,17 @@ class App:
         self._watch("morning", step, d["arrive"] + 10)
 
     # ================================================================ 3) way home
-    def compute_home(self, prefer=None):
+    def compute_home(self, prefer=None, slot="home"):
+        """slot "home": the plan for your leave-work time (what the app shows by default; before that time it plans
+        for ~10 min ahead of it). slot "home_now": the on-demand "leave now" plan (the app shows it for an hour).
+        slot None: just compute (used to score trips), store nothing."""
         ids, c = self._need_ids(), self.c
         t_now = now()
         now_m = mins(t_now)
+        lw = self.day(t_now.date())["leave_work"]
+        at_m = now_m
+        if slot == "home" and not self.asap("home") and now_m < lw - 10:
+            at_m = lw - 10
         s = self.samples()
         red_k = self.mbta.predictions("place-knncl", "Red", 0)
         red_b = self.mbta.predictions("place-brdwy", "Red", 0)
@@ -499,16 +506,16 @@ class App:
         for x in preds:
             if x["rel"] in DEAD:
                 dead.add(x["trip"])
-                if x["sched"] and now_m - 2 <= mins(x["sched"]) <= now_m + 75:
+                if x["sched"] and at_m - 2 <= mins(x["sched"]) <= at_m + 75:
                     dead_times.append(mins(x["sched"]))
             elif x["dep"] or x["arr"]:
                 tt = mins(x["dep"] or x["arr"])
                 buses.append({"t": tt, "kind": "pred", "label": hm(tt), "trip": x["trip"]})
         have = {b["trip"] for b in buses}
         try:
-            end = t_now + dt.timedelta(minutes=90)
+            hhmm = lambda m: f"{min(int(m) // 60, 23):02d}:{int(m) % 60 if m < 1440 else 59:02d}"  # noqa: E731
             for sc in self.mbta.schedules(",".join(ids["bway_out"]), self.route, 0, t_now.date().isoformat(),
-                                          t_now.strftime("%H:%M"), end.strftime("%H:%M")):
+                                          hhmm(max(at_m - 5, 0)), hhmm(at_m + 90)):
                 if sc["trip"] not in have and sc["trip"] not in dead:
                     tt = mins(sc["time"])
                     buses.append({"t": tt, "kind": "sched", "label": hm(tt) + "*", "trip": sc["trip"]})
@@ -517,11 +524,11 @@ class App:
         trains = sorted(({"dep": mins(x["dep"]), "trip": x["trip"], "arr_bway": arr_b.get(x["trip"])}
                          for x in red_k if x["dep"] and x["rel"] not in DEAD), key=lambda x: x["dep"])
         pred_deps = [t["dep"] for t in trains]
-        for d in model.extend_trains(pred_deps, s["red_sb_headway"], now_m + 75)[len(trains):]:
+        for d in model.extend_trains(pred_deps, s["red_sb_headway"], at_m + 75)[len(trains):]:
             trains.append({"dep": d, "trip": None, "arr_bway": None})
-        trains = [t for t in trains if t["dep"] - c["desk_to_kendall"] - c["buffer"] >= now_m - 0.2][:8]
+        trains = [t for t in trains if t["dep"] - c["desk_to_kendall"] - c["buffer"] >= at_m - 0.2][:8]
         sims = model.simulate_home(now_m, trains, sorted(buses, key=lambda b: b["t"]), s["red_sb"], s["bus_out"],
-                                   ErrorModel(self.rec), c)
+                                   ErrorModel(self.rec), c, floor_m=at_m)
         gap = self.cfg["prefs"]["red_gap_alert_min"]
         gaps = [(a, b) for a, b in zip(pred_deps, pred_deps[1:]) if b - a >= gap and a <= now_m + 40]
         try:
@@ -532,35 +539,70 @@ class App:
         notes += [(f"g:{a:.1f}", f"🚇 Red Line gap at Kendall: {hm(a)} → {hm(b)}.") for a, b in gaps[:1]]
         notes += [(f"a:{a['id']}", f"⚠ {a['header']}") for a in alerts[:2]]
         best = self.pick_home(sims, now_m, prefer)
-        self.st["home"] = {
-            "t": int(time.time()), "best": self.describe_home(best), "notes": [n for _, n in notes],
-            "rows": [[hm(r["train"]), hm(r["leave_office"], "floor"),
-                      ", ".join(f"{k} {v:.0%}" for k, v in list(r["outcomes"].items())[:3]),
-                      hm(r["home_med"], "ceil")] for r in sims[:6]],
-        }
-        return {"sims": sims, "best": best, "notes": notes, "now": now_m}
+        bus = self.best_bus_train(sims, at_m)
+        if slot:
+            self.st[slot] = {
+                "t": int(time.time()), "for": hm(at_m, "floor") if at_m > now_m + 1 else None,
+                "best": self.describe_home(bus or best), "now": self.leave_now_line(sims),
+                "notes": [n for _, n in notes],
+                "rows": [[hm(r["train"]), hm(r["leave_office"], "floor"), self.bus_cell(r), hm(r["home_med"], "ceil")]
+                         for r in sims[:6]],
+            }
+        return {"sims": sims, "best": best, "bus": bus, "notes": notes, "now": now_m, "at": at_m}
+
+    @staticmethod
+    def _bus_key(r):
+        # most likely a bus is ready within 2 min of you reaching the stop, then least waiting, then earliest
+        return (-round(r["p_ready"] * 20) / 20, r["wait_med"] if r["wait_med"] is not None else 99, r["leave_office"])
 
     def pick_home(self, sims, now_m, prefer=None):
-        """The train nearest your usual leave-work time that wastes the least time standing around.
-        `prefer`: the train we already told you about; keep it unless another is >1.5 min better."""
+        """The train (near your usual leave-work time) that puts a 9 at the stop within ~2 min of you arriving.
+        `prefer`: the train we already told you about; keep it unless another is clearly more likely to connect."""
         if not sims:
             return None
         lw = self.day(now().date())["leave_work"]
         window = [r for r in sims if lw - 10 <= r["leave_office"] <= lw + 20] or sims[:2]
-        if self.asap("home"):               # leave ASAP: the first train you can make, not the least waiting
+        if self.asap("home"):               # leave ASAP: the first train you can make, not the best connection
             window = [r for r in sims if r["leave_office"] <= now_m + ASAP_WINDOW_MIN] or sims[:1]
-        best = min(window, key=lambda r: (round(r["door_to_door"]), r["leave_office"]))
+            return window[0]
+        best = min(window, key=self._bus_key)
         if prefer is not None:
             same = [r for r in window if abs(r["train"] - prefer) < 1]
-            if same and same[0]["door_to_door"] - best["door_to_door"] < 1.5:
+            if same and best["p_ready"] - same[0]["p_ready"] < 0.15:
                 return same[0]
         return best
+
+    def best_bus_train(self, sims, from_m, horizon=35):
+        """Best connection to a bus among trains whose desk-leave is within `horizon` min of `from_m`."""
+        cand = [r for r in sims if r["leave_office"] <= from_m + horizon] or sims[:1]
+        return min(cand, key=self._bus_key) if cand else None
+
+    @staticmethod
+    def bus_cell(r):
+        """'9 5:48 · wait 1m · 78%' (78% = chance it's ready within 2 min of you reaching the stop), or 'walk'."""
+        buses = [(k, v) for k, v in r["outcomes"].items() if k != "walk"]
+        if not buses or r["outcomes"].get("walk", 0) > 0.5:
+            return "walk home"
+        w = r["wait_med"]
+        return f"9 {buses[0][0]} · wait {w:.0f}m · {r['p_ready']:.0%}" if w is not None else f"9 {buses[0][0]}"
+
+    def leave_now_line(self, sims):
+        """If you left your desk right now: is walking or the bus fastest? (Walking often wins; the bus plan is separate.)"""
+        if not sims:
+            return None
+        f = sims[0]
+        if f["bus_med"] is not None and f["bus_med"] <= f["walk_med"] + 1:
+            return f"Leave now: the {hm(f['train'])} train and the bus is fastest, home ~{hm(f['bus_med'], 'ceil')}."
+        return f"Leave now: walking from Broadway is fastest, home ~{hm(f['walk_med'], 'ceil')}."
 
     def describe_home(self, r):
         if not r:
             return "No Red Line predictions out of Kendall right now."
-        top = next(iter(r["outcomes"].items()), ("walk", 1))
-        via = "walk home from Broadway" if top[0] == "walk" else f"9 at {top[0]} ({top[1]:.0%})"
+        cell = self.bus_cell(r)
+        if cell == "walk home":
+            via = "walk home from Broadway"
+        else:
+            via = f"9 at {next(k for k in r['outcomes'] if k != 'walk')} (wait ~{r['wait_med']:.0f} min, {r['p_ready']:.0%} within 2 min)"
         return (f"Leave desk {hm(r['leave_office'], 'floor')} → {hm(r['train'])} train → {via} "
                 f"→ home ~{hm(r['home_med'], 'ceil')}")
 
@@ -568,26 +610,20 @@ class App:
         sims = h["sims"]
         if not sims:
             return "No Red Line predictions out of Kendall right now. Check the T app."
-        first = sims[0]
-        lines = [f"Leaving now: the {hm(first['train'])} train, home ~{hm(first['home_med'], 'ceil')} "
-                 f"(80%: {hm(first['home_p80'], 'ceil')})."]
-        eff = min(sims[:5], key=lambda r: (round(r["door_to_door"]), r["leave_office"]))
-        if eff is not first and eff["home_med"] - first["home_med"] <= 6:
-            lines.append(f"Least time in transit: leave your desk {hm(eff['leave_office'], 'floor')} for the "
-                         f"{hm(eff['train'])} train, home ~{hm(eff['home_med'], 'ceil')} "
-                         f"(~{first['door_to_door'] - eff['door_to_door']:.0f} min less standing around).")
+        lines = [self.leave_now_line(sims)]
+        bus = h.get("bus")
+        if bus:
+            lines.append("For a bus: " + self.describe_home(bus))
         lines.append("")
-        for a, b in zip(sims[:5], sims[1:6] + [None]):
-            odds = ", ".join(f"{k} {v:.0%}" for k, v in list(a["outcomes"].items())[:3])
-            same = b and abs(b["home_med"] - a["home_med"]) < 1
-            lines.append(f"{hm(a['train'])} train (leave desk {hm(a['leave_office'], 'floor')}): {odds} → "
-                         f"home ~{hm(a['home_med'], 'ceil')}{'  ← same as next' if same else ''}")
+        for a in sims[:5]:
+            lines.append(f"{hm(a['train'])} train (desk {hm(a['leave_office'], 'floor')}): {self.bus_cell(a)} → "
+                         f"home ~{hm(a['home_med'], 'ceil')}")
         lines += [n for _, n in h["notes"][:3]]
-        lines.append("Times = 9 leaving Broadway; * = schedule only, no live prediction yet.")
+        lines.append("Bus times = 9 leaving Broadway; * = schedule only. Last number = chance it's ready within 2 min of you reaching the stop.")
         return "\n".join(lines)
 
     def home_plan(self, push=True):
-        h = self.compute_home()
+        h = self.compute_home(slot="home_now")
         msg = self.home_message(h)
         if push:
             self.notify.push("Way home", msg, tags=["house"], tag="home", buttons=self.home_buttons())
@@ -648,7 +684,7 @@ class App:
                 p = self.morning_plan()
                 e = p["earliest"]
                 return (e.arrive, self.describe(e)) if e else (None, None)
-            h = self.compute_home()
+            h = self.compute_home(slot=None)
             f = h["sims"][0] if h["sims"] else None
             return (f["home_med"], f"{hm(f['train'])} train") if f else (None, None)
         except Exception as e:
@@ -720,6 +756,16 @@ class App:
             self.handle(text, ts)
         self.save_state()
 
+    def learned_rows(self):
+        """Structured 'what it has learned' for the app: [{k, v (min), n (trips), p (your starting guess)}]."""
+        out = []
+        for k, (v, n, _) in self.fb.learned().items():
+            out.append({"k": k, "v": round(v, 1), "n": n, "p": round(self.fb._priors.get(k, v), 1)})
+        _, rides = self.fb.observations()
+        for k, xs in rides.items():
+            out.append({"k": k, "v": round(median(xs), 1), "n": len(xs)})
+        return out
+
     def publish_status(self, force=False):
         """The web app's data: one compact JSON message on the status topic. Sent when something
         changed, plus a heartbeat every 10 min so the app knows the watcher is alive."""
@@ -730,8 +776,10 @@ class App:
         st = {"v": 1, "t": int(time.time()), "watch": self.watching,
               "vapid": self.cfg.get("webpush", {}).get("public_key"),
               "today": self.info(today), "tomorrow": self.info(today + dt.timedelta(days=1)),
-              "morning": self.st["morning"], "home": self.st["home"],
-              "learned": self.fb.report().splitlines()[:10], "trip": self.fb.trip_status()}
+              "morning": self.st["morning"], "home": self.st["home"], "home_now": self.st["home_now"],
+              "defaults": {"arrive": hm(parse_hm(self.cfg["prefs"]["arrive_by"])),
+                           "leave_work": hm(parse_hm(self.cfg["prefs"]["leave_work_at"]))},
+              "learned": self.learned_rows(), "trip": self.fb.trip_status()}
         body = {k: v for k, v in st.items() if k != "t"}
         digest = hashlib.sha1(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()
         last_digest, last_t = self._last_status
@@ -739,9 +787,9 @@ class App:
             return
         text = json.dumps(st, separators=(",", ":"), ensure_ascii=False)
         if len(text.encode()) > 4000:           # ntfy turns >4 KB into an attachment; trim
-            st["learned"] = st["learned"][:4]
-            if st["home"] and st["home"].get("rows"):
-                st["home"] = dict(st["home"], rows=st["home"]["rows"][:4])
+            for k in ("home", "home_now"):
+                if st[k] and st[k].get("rows"):
+                    st[k] = dict(st[k], rows=st[k]["rows"][:4])
             text = json.dumps(st, separators=(",", ":"), ensure_ascii=False)
         self.ntfy.publish_raw(self.ntfy.status_topic, text)
         self._last_status = (digest, time.time())
@@ -770,6 +818,12 @@ class App:
                 self.watch_home()
                 st["home_done"] = str(today)
                 self.save_state()
+        if (not d["off"] and st.get("home_done") != str(today)
+                and d["leave_work"] - 300 <= now_m < d["leave_work"] + 40):
+            try:
+                self.compute_home()        # the plan for your leave-work time, so the app has it before the watcher starts
+            except Exception as e:
+                log(f"[tick] home plan: {e}")
         self.publish_status()
 
     def serve(self):

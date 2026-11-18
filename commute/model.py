@@ -175,22 +175,30 @@ def pick_morning(opts):
 #    Broadway given (a) how long Kendall->Broadway really takes, (b) how wrong the 9's
 #    predictions/schedule usually are. Out of that: chance of making each bus, and when home.
 # =====================================================================================
-def simulate_home(now_m, trains, buses, red_ride, bus_ride, err, c, n=1500, rng=None):
+BUS_PREF_MIN = 3   # you'd rather ride the bus than walk home, unless walking is clearly faster than this
+READY_MIN = 2      # "a bus ready within 2 min of getting to the stop"
+
+
+def simulate_home(now_m, trains, buses, red_ride, bus_ride, err, c, n=1500, rng=None, floor_m=None):
     """trains: [{'dep': min at Kendall SB, 'trip', 'arr_bway': min or None}]
-    buses:  [{'t': min at Broadway outbound, 'kind': 'pred'|'sched', 'label'}]"""
+    buses:  [{'t': min at Broadway outbound, 'kind': 'pred'|'sched', 'label'}]
+    floor_m: earliest desk-leave to consider (defaults to now); `now_m` still sets how stale predictions are.
+    Per train it reports what you care about: the bus you'd board, how long you'd wait for it at the stop, and the
+    chance it's ready within READY_MIN of you arriving. Walking only wins if it beats the bus by > BUS_PREF_MIN."""
     rng = rng or random.Random()
+    floor_m = now_m if floor_m is None else floor_m
     results = []
     for tr in trains:
         leave_office = tr["dep"] - c["desk_to_kendall"] - c["buffer"]
-        if leave_office < now_m - 0.2:
+        if leave_office < floor_m - 0.2:
             continue
         lead_tr = tr["dep"] - now_m
-        homes, waits, outcome = [], [], {}
+        homes, waits, walks, bus_homes, outcome, ready = [], [], [], [], {}, 0
         for _ in range(n):
             if tr.get("arr_bway"):
-                arr = tr["arr_bway"] + err.sample("red_sb_bway", lead_tr + 10)
+                arr = tr["arr_bway"] + err.sample("red_sb_bway", max(lead_tr, 0) + 10)
             else:
-                arr = tr["dep"] + err.sample("red_sb_knd", lead_tr) + (rng.choice(red_ride) if red_ride else 10.5)
+                arr = tr["dep"] + err.sample("red_sb_knd", max(lead_tr, 0)) + (rng.choice(red_ride) if red_ride else 10.5)
             at_stop = arr + c["platform_to_bus"]
             walk_home = arr + c["station_to_home"]
             best_bus, best_lbl = None, None
@@ -201,10 +209,14 @@ def simulate_home(now_m, trains, buses, red_ride, bus_ride, err, c, n=1500, rng=
                     best_bus, best_lbl = d, b["label"]
             bus_home = (best_bus + (rng.choice(bus_ride) if bus_ride else c["bus_ride_default"])
                         + c["stop_to_home"]) if best_bus is not None else 1e9
-            if bus_home <= walk_home:
+            walks.append(walk_home)
+            if bus_home < 1e8:
+                bus_homes.append(bus_home)
+            if bus_home <= walk_home + BUS_PREF_MIN:
                 homes.append(bus_home)
                 waits.append(best_bus - at_stop)
                 outcome[best_lbl] = outcome.get(best_lbl, 0) + 1
+                ready += (best_bus - at_stop) <= READY_MIN
             else:
                 homes.append(walk_home)
                 outcome["walk"] = outcome.get("walk", 0) + 1
@@ -213,6 +225,8 @@ def simulate_home(now_m, trains, buses, red_ride, bus_ride, err, c, n=1500, rng=
             "home_med": median(homes), "home_p80": pct(homes, 0.8),
             "door_to_door": median(homes) - leave_office,
             "wait_med": median(waits) if waits else None,
+            "p_ready": ready / n,
+            "walk_med": median(walks), "bus_med": median(bus_homes) if bus_homes else None,
             "outcomes": {k: v / n for k, v in sorted(outcome.items(), key=lambda kv: -kv[1])},
         })
     return results

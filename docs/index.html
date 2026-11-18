@@ -39,7 +39,54 @@ p { margin: 6px 0; }
 .seg { display: flex; background: var(--wait); border-radius: 10px; padding: 3px; gap: 3px; margin: 4px 0 18px; }
 .seg button { flex: 1; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 600;
   padding: 7px; border-radius: 8px; }
-.seg button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.seg { position: relative; }
+.seg .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 9px) / 2); background: var(--surface);
+  border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.12); transition: transform .32s cubic-bezier(.3,.8,.25,1); }
+.seg[data-pos="1"] .thumb { transform: translateX(calc(100% + 3px)); }
+.seg button { position: relative; z-index: 1; transition: opacity .2s; }
+.seg button[aria-pressed="false"] { opacity: .65; }
+@keyframes inR { from { opacity: 0; transform: translateX(36px); } to { opacity: 1; transform: none; } }
+@keyframes inL { from { opacity: 0; transform: translateX(-36px); } to { opacity: 1; transform: none; } }
+.in-right { animation: inR .34s cubic-bezier(.3,.8,.25,1); }
+.in-left { animation: inL .34s cubic-bezier(.3,.8,.25,1); }
+.topbar { display: flex; align-items: center; justify-content: space-between; height: 40px; margin: -8px 0 4px; }
+.topbar .title { font-size: 15px; font-weight: 600; color: var(--muted); }
+#gearBtn { width: 40px; height: 40px; border: 0; background: none; color: var(--muted); border-radius: 50%; display: grid;
+  place-items: center; margin-right: -8px; }
+#gearBtn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform .4s cubic-bezier(.3,.8,.25,1); }
+#gearBtn[aria-pressed="true"] { color: var(--ink); background: var(--wait); }
+#gearBtn[aria-pressed="true"] svg { transform: rotate(90deg); }
+.chip { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  background: var(--wait); border-radius: 999px; padding: 4px 10px; margin: 2px 0 6px; }
+.chip.live { background: var(--ink); color: var(--bg); }
+.linkbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-decoration: underline; padding: 4px 0; }
+/* days: tap a time to change it; saves by itself */
+.dayhead { display: flex; align-items: baseline; gap: 8px; }
+.dayhead .grow { flex: 1; }
+.dayhead button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; padding: 4px 0; }
+.times { display: flex; gap: 10px; margin: 10px 0 4px; }
+.tchip { position: relative; flex: 1; min-width: 0; background: var(--wait); border-radius: 12px; padding: 9px 12px 10px; display: block; }
+.tchip .cap { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.tchip .tv { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tchip .tv small { font-size: 14px; font-weight: 700; margin-left: 2px; color: var(--muted); }
+.tchip.chg { box-shadow: inset 0 0 0 2px var(--yellow); }
+.tchip input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0; min-height: 0; }
+.card.off .times { opacity: .4; pointer-events: none; }
+/* learned rows */
+.lrow { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.lrow:last-child { border-bottom: 0; }
+.lrow .ic { font-size: 17px; text-align: center; white-space: nowrap; letter-spacing: -.12em; }
+.lrow .nm { font-weight: 600; line-height: 1.25; }
+.lrow .sb { font-size: 13px; color: var(--muted); }
+.lrow .val { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; line-height: 1.1; }
+.lrow .val small { font-size: 13px; font-weight: 700; color: var(--muted); }
+.lrow .dl { display: block; font-size: 12px; font-weight: 700; }
+.lrow .dl.up { color: var(--red); } .lrow .dl.down { color: var(--ok); }
+.lrow.fresh .val { animation: bump 1.2s ease-out; }
+@keyframes bump { 0% { transform: scale(1.18); color: var(--ok); } 100% { transform: none; } }
+.lrow.dflt .val { color: var(--muted); }
+.lgroup { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 22px 0 0; }
 
 /* the trip bar: the one bold thing. Width = time; color = how you're moving. */
 .bar { display: flex; height: 26px; margin: 18px 0 6px; gap: 2px; }
@@ -90,8 +137,8 @@ input[type=time] { min-height: 46px; }
 .check input { width: 22px; height: 22px; }
 
 nav { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line);
-  display: flex; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
-nav button { flex: 1; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+  display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+nav button { min-width: 0; text-align: center; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
   font-weight: 600; padding: 8px 0; }
 nav button[aria-current="page"] { color: var(--ink); }
 nav button[aria-current="page"]::before { content: ""; display: block; height: 3px; width: 22px; margin: 0 auto 5px;
@@ -101,15 +148,20 @@ nav button::before { content: ""; display: block; height: 3px; margin: 0 auto 5p
   max-width: 520px; background: var(--ink); color: var(--bg); padding: 12px 14px; border-radius: 12px;
   font-size: 15px; opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; pointer-events: none; }
 #toast.show { opacity: 1; transform: none; }
-@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+@media (prefers-reduced-motion: reduce) { #toast, .seg .thumb, #gearBtn svg { transition: none; } .in-left, .in-right, .lrow.fresh .val { animation: none; } }
+#trip > h2:first-child, #days > h2:first-child, #learned > h2:first-child { display: none; }
 .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <main>
+  <div class="topbar"><span class="title" id="pageTitle">Now</span>
+    <button id="gearBtn" aria-label="Settings" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </div>
   <!-- NOW -->
   <section id="now">
-    <div class="seg" role="group" aria-label="Direction">
+    <div class="seg" role="group" aria-label="Direction" data-pos="0">
+      <span class="thumb" aria-hidden="true"></span>
       <button id="segM" aria-pressed="true">To work</button>
       <button id="segH" aria-pressed="false">Way home</button>
     </div>
@@ -169,7 +221,6 @@ nav button::before { content: ""; display: block; height: 3px; margin: 0 auto 5p
   <button data-tab="trip">Trip</button>
   <button data-tab="days">Days</button>
   <button data-tab="learned">Learned</button>
-  <button data-tab="settings">Settings</button>
 </nav>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -241,6 +292,7 @@ function render() {
   $("fresh").textContent = !cfg.cmd ? "Not connected. Add your setup code in Settings."
     : !status ? "No plan yet. It appears after the first scheduled check."
     : live ? `Watching live, updated ${ago(status.t)}` : `Updated ${ago(status.t)}`;
+  $("segM").parentNode.dataset.pos = dir === "morning" ? 0 : 1;
   $("segM").setAttribute("aria-pressed", dir === "morning");
   $("segH").setAttribute("aria-pressed", dir === "home");
   $("planBtn").textContent = dir === "morning" ? "Find my optimal path" : "Find my best way home";
@@ -261,12 +313,16 @@ function render() {
       html += `<div class="big">In by ${esc(today.arrive)}</div><p class="muted">Live alerts start an hour before you’d leave.</p>`;
     }
   } else {
-    const h = status && status.home;
+    const { h, now: isNow } = pickHome();
     if (h && h.rows) {
+      html += isNow
+        ? `<span class="chip live">Leaving now</span> <button class="linkbtn" id="backBtn">back to ${esc(today ? today.leave_work : "the usual")} plan</button>`
+        : `<span class="chip">${h.for ? `Plan for ${esc(today ? today.leave_work : h.for)}` : "Live plan"}</span>`;
       html += `<p class="sub">${esc(h.best)}</p>`;
-      html += `<table><tr><th>Train</th><th>Leave desk</th><th>At Broadway</th><th>Home</th></tr>` +
+      if (h.now) html += `<div class="note">${esc(h.now)}</div>`;
+      html += `<table><tr><th>Train</th><th>Desk</th><th>9 bus: wait · ready ≤2 min</th><th>Home</th></tr>` +
         h.rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("") + `</table>`;
-      html += `<p class="muted">At Broadway = which 9 you’d catch (* schedule only) or walking, with odds. Plan from ${ago(h.t)}.</p>`;
+      html += `<p class="muted">Bus time = the 9 leaving Broadway (* schedule only). The % is the chance it’s ready within 2 min of you reaching the stop. ${isNow ? "Plan" : "Updated"} ${ago(h.t)}.</p>`;
       html += (h.notes || []).map((n) => `<div class="note ${noteClass(n)}">${esc(n)}</div>`).join("");
     } else if (today) {
       html += `<div class="big">Out ${esc(today.leave_work)}</div><p class="muted">Way-home alerts start an hour before.</p>`;
@@ -279,8 +335,21 @@ function render() {
   renderTrip(); renderDays(); renderLearned();
 }
 
+// The way-home view shows the plan for your leave-work time. "Find my best way home" shows a leave-now plan for an
+// hour, then goes back. The app remembers it itself, because later status updates won't carry it.
+let homeNow = store.get("homeNow", null);
+function pickHome() {
+  const n = status && status.home_now;
+  if (n && (!homeNow || n.t > homeNow.t)) { homeNow = n; store.set("homeNow", homeNow); }
+  const live = homeNow && Date.now() / 1000 - homeNow.t < 3600 && store.get("homeDismiss", 0) < homeNow.t;
+  if (live) return { h: homeNow, now: true };
+  const h = status && status.home;
+  return { h: h && Date.now() / 1000 - h.t < 3 * 3600 ? h : null, now: false };
+}
+
 async function planNow() {
   const what = dir === "morning" ? "morning" : "home";
+  if (what === "home") store.set("homeDismiss", 0);
   const live = status && status.watch && Date.now() / 1000 - status.t < 12 * 60;
   if (live) { send(what === "morning" ? "plan_morning" : "plan_home"); toast("Asked the live watcher. Answer within a minute."); }
   else if (cfg.repo && cfg.token) {
@@ -389,27 +458,89 @@ function renderTrip() {
 const to12 = (v, pm) => { const [h, m] = v.split(":").map(Number); return `${(h + 11) % 12 + 1}:${String(m).padStart(2, "0")}${h >= 12 ? "pm" : "am"}`; };
 const to24 = (s) => { const m = /(\d+):(\d+)\s*([ap]m)?/i.exec(s || ""); if (!m) return ""; let h = +m[1]; const ap = (m[3] || "").toLowerCase();
   if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; if (!ap && h < 7) h += 12; return `${String(h).padStart(2, "0")}:${m[2]}`; };
+const pretty = (v24) => { const [h, m] = v24.split(":").map(Number); return `${(h + 11) % 12 + 1}:${String(m).padStart(2, "0")}<small>${h >= 12 ? "PM" : "AM"}</small>`; };
+const dayName = (w) => { const d = new Date(Date.now() + (w === "tomorrow" ? 864e5 : 0));
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); };
+const dflt = () => ({ arrive: to24((status && status.defaults && status.defaults.arrive) || "9:30am"),
+                      leave: to24((status && status.defaults && status.defaults.leave_work) || "5:30pm") });
+let pendingDays = store.get("pendingDays", {});   // what you just set, shown until the planner's status catches up
+function dayState(w) {
+  const d = status && status[w], df = dflt(), p = pendingDays[w];
+  const real = { arrive: to24(d && d.arrive) || df.arrive, leave: to24(d && d.leave_work) || df.leave, off: !!(d && d.off) };
+  if (p && Date.now() / 1000 - p.at < 1800) {
+    if (p.arrive === real.arrive && p.leave === real.leave && p.off === real.off) { delete pendingDays[w]; store.set("pendingDays", pendingDays); }
+    else return p;
+  }
+  return real;
+}
 function renderDays() {
-  const days = [["today", status && status.today], ["tomorrow", status && status.tomorrow]];
-  $("daysBody").innerHTML = days.map(([w, d]) => {
-    const arrive = to24(d && d.arrive) || "09:30", leave = to24(d && d.leave_work) || "17:30";
-    return `<div class="card"><b>${w === "today" ? "Today" : "Tomorrow"}</b>${d && d.changed ? ` <span class="muted">changed</span>` : ""}
-      <label for="${w}A">In by</label><input type="time" id="${w}A" value="${arrive}">
-      <label for="${w}L">Leave work</label><input type="time" id="${w}L" value="${leave}">
-      <label class="check"><input type="checkbox" id="${w}Off" ${d && d.off ? "checked" : ""}> No commute</label>
-      <div class="row"><button class="ghost" data-save="${w}">Save ${w}</button><button class="ghost" data-reset="${w}">Back to default</button></div></div>`;
+  if (document.activeElement && document.activeElement.closest && document.activeElement.closest("#daysBody")) return;   // don't close an open time picker
+  const df = dflt();
+  $("daysBody").innerHTML = ["today", "tomorrow"].map((w) => {
+    const st = dayState(w), chg = st.arrive !== df.arrive || st.leave !== df.leave || st.off;
+    return `<div class="card ${st.off ? "off" : ""}" data-w="${w}">
+      <div class="dayhead"><b>${w === "today" ? "Today" : "Tomorrow"}</b><span class="muted grow">${esc(dayName(w))}</span>
+        <button data-reset="${w}" ${chg ? "" : "hidden"}>↺ Default</button></div>
+      <div class="times">
+        <label class="tchip ${st.arrive !== df.arrive ? "chg" : ""}"><span class="cap">In by</span><span class="tv">${pretty(st.arrive)}</span>
+          <input type="time" data-f="arrive" value="${st.arrive}" aria-label="${w} in by"></label>
+        <label class="tchip ${st.leave !== df.leave ? "chg" : ""}"><span class="cap">Leave work</span><span class="tv">${pretty(st.leave)}</span>
+          <input type="time" data-f="leave" value="${st.leave}" aria-label="${w} leave work"></label>
+      </div>
+      <label class="check"><input type="checkbox" data-f="off" ${st.off ? "checked" : ""}> No commute</label></div>`;
   }).join("");
 }
-function saveDay(w) {
-  if ($(`${w}Off`).checked) send(`${w} off`);
-  else send(`${w} on arrive ${to12($(`${w}A`).value)} leave ${to12($(`${w}L`).value)}`);
-  toast(`Saved. ${w === "tomorrow" ? "If tonight’s plan already went out, a new one follows." : ""}`);
+function readDay(w) {
+  const c = document.querySelector(`#daysBody [data-w="${w}"]`), q = (f) => c.querySelector(`[data-f="${f}"]`);
+  return { arrive: q("arrive").value || dflt().arrive, leave: q("leave").value || dflt().leave, off: q("off").checked, at: Date.now() / 1000 };
+}
+const saveTimers = {};
+function dayChanged(w) {
+  pendingDays[w] = readDay(w); store.set("pendingDays", pendingDays);
+  renderDays();
+  clearTimeout(saveTimers[w]);
+  saveTimers[w] = setTimeout(() => {
+    const d = pendingDays[w]; if (!d) return;
+    send(d.off ? `${w} off` : `${w} on arrive ${to12(d.arrive)} leave ${to12(d.leave)}`);
+    toast(`Saved ${w}.${w === "tomorrow" ? " If tonight’s plan already went out, a new one follows." : ""}`);
+  }, 700);
+}
+function resetDay(w) {
+  const df = dflt();
+  pendingDays[w] = { arrive: df.arrive, leave: df.leave, off: false, at: Date.now() / 1000 }; store.set("pendingDays", pendingDays);
+  clearTimeout(saveTimers[w]); send(`${w} default`); renderDays(); toast("Back to default.");
 }
 
 // ---------------------------------------------------------------- LEARNED
+const LEARN = {
+  walk_to_bus_stop: ["🚪🚏", "Door → F St stop", "To work"], walk_to_station: ["🚪🚇", "Door → Broadway platform (walking)", "To work"],
+  bus_to_platform: ["🚌🚇", "Broadway: off the bus → platform", "To work"], walk_from_kendall: ["🚇🏢", "Kendall platform → desk", "To work"],
+  desk_to_kendall: ["🏢🚇", "Desk → Kendall platform", "Way home"], platform_to_bus: ["🚇🚌", "Broadway: off the train → bus stop", "Way home"],
+  stop_to_home: ["🚌🏠", "F St stop → door", "Way home"], station_to_home: ["🚇🏠", "Broadway → door (walking)", "Way home"],
+  bus_in: ["🚌", "9 ride: F St → Broadway", "Rides"], red_nb: ["🚇", "Red Line: Broadway → Kendall", "Rides"],
+  bus_out: ["🚌", "9 ride: Broadway → F St", "Rides"], red_sb: ["🚇", "Red Line: Kendall → Broadway", "Rides"],
+};
+let lastLearned = {};
 function renderLearned() {
-  const l = status && status.learned;
-  $("learnedBody").innerHTML = l && l.length ? l.map((x) => `<p>${esc(x)}</p>`).join("") : "<p>Nothing yet. Log a few trips in the Trip tab.</p>";
+  const rows = (status && status.learned) || [];
+  if (!rows.length || typeof rows[0] === "string") { $("learnedBody").innerHTML = "<p>Nothing yet. Log a few trips in the Trip tab.</p>"; return; }
+  let html = "", group = "";
+  for (const g of ["To work", "Way home", "Rides"]) {
+    const items = rows.filter((r) => LEARN[r.k] && LEARN[r.k][2] === g);
+    if (!items.length) continue;
+    html += `<div class="lgroup">${g}</div>`;
+    for (const r of items) {
+      const [ic, nm] = LEARN[r.k], d = r.p != null ? r.v - r.p : 0;
+      const delta = r.n && Math.abs(d) >= 0.2 ? `<span class="dl ${d > 0 ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(1)} vs guess</span>` : "";
+      const sub = r.n ? `${r.n} trip${r.n > 1 ? "s" : ""}${r.p != null ? ` · started at ${r.p}` : ""}` : "your starting guess";
+      const fresh = lastLearned[r.k] !== undefined && lastLearned[r.k] !== r.v;
+      html += `<div class="lrow ${r.n ? "" : "dflt"} ${fresh ? "fresh" : ""}"><span class="ic">${ic}</span>
+        <div><div class="nm">${esc(nm)}</div><div class="sb">${esc(sub)}</div></div>
+        <div class="val">${r.v.toFixed(1)}<small> min</small>${delta}</div></div>`;
+    }
+  }
+  rows.forEach((r) => { lastLearned[r.k] = r.v; });
+  $("learnedBody").innerHTML = html;
 }
 
 // ---------------------------------------------------------------- SETTINGS + notifications
@@ -452,18 +583,32 @@ function saveSettings() {
 }
 
 // ---------------------------------------------------------------- wiring
+const TITLES = { now: "Now", trip: "Trip log", days: "Your days", learned: "What it has learned", settings: "Settings" };
+let lastTab = "now";
 function show(tab) {
   for (const s of document.querySelectorAll("main > section")) s.classList.toggle("hidden", s.id !== tab);
   for (const b of document.querySelectorAll("nav button")) {
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   }
+  if (tab !== "settings") lastTab = tab;
+  $("gearBtn").setAttribute("aria-pressed", tab === "settings");
+  $("pageTitle").textContent = TITLES[tab] || "";
   if (tab === "settings") renderSettings();
   scrollTo(0, 0);
 }
 document.querySelector("nav").addEventListener("click", (e) => { const t = e.target.closest("button"); if (t) show(t.dataset.tab); });
-$("segM").onclick = () => { dir = "morning"; render(); };
-$("segH").onclick = () => { dir = "home"; render(); };
+$("gearBtn").onclick = () => show($("gearBtn").getAttribute("aria-pressed") === "true" ? lastTab : "settings");
+function setDir(d) {
+  if (d === dir) return;
+  dir = d; render();
+  $("segM").parentNode.dataset.pos = d === "morning" ? 0 : 1;           // the pill slides across
+  const body = $("nowBody"); body.classList.remove("in-left", "in-right"); void body.offsetWidth;
+  body.classList.add(d === "home" ? "in-right" : "in-left");           // and the content slides in the same direction
+}
+$("segM").onclick = () => setDir("morning");
+$("segH").onclick = () => setDir("home");
 $("planBtn").onclick = planNow;
+$("nowBody").addEventListener("click", (e) => { if (e.target.id === "backBtn") { store.set("homeDismiss", homeNow ? homeNow.t : 0); render(); } });
 $("asapBtn").onclick = asapNow;
 $("tripBody").addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
@@ -472,11 +617,8 @@ $("tripBody").addEventListener("click", (e) => {
   logStep(t.dataset.step, t.dataset.dir);
 });
 $("noteBtn").onclick = () => { const v = $("noteText").value.trim(); if (!v) return; send(`note ${v}`); $("noteText").value = ""; toast("Note saved."); };
-$("daysBody").addEventListener("click", (e) => {
-  const t = e.target.closest("button"); if (!t) return;
-  if (t.dataset.save) saveDay(t.dataset.save);
-  if (t.dataset.reset) { send(`${t.dataset.reset} default`); toast("Back to default."); }
-});
+$("daysBody").addEventListener("click", (e) => { const t = e.target.closest("button[data-reset]"); if (t) resetDay(t.dataset.reset); });
+$("daysBody").addEventListener("change", (e) => { const c = e.target.closest("[data-w]"); if (c) dayChanged(c.dataset.w); });
 $("accBtn").onclick = () => { send("accuracy"); toast("Requested. It arrives at the planner’s next check."); };
 $("pushBtn").onclick = enablePush;
 $("saveSettings").onclick = saveSettings;
