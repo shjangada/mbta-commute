@@ -157,13 +157,6 @@ plan.yml dispatch from the app's button, MBTA stop lookup, TransitMatters, predi
 4. **Iterate on the web app** with the user on their phone (iOS 18 Safari, standalone mode). The user
    is open to more personalization.
 
-### Visual design (decided 2026-11-18)
-User likes the layout/flow and **loves the app icon**; asked for colors/sizes/effects/fonts only, more transit-themed.
-Do not change the icon or tab structure. Look: navy brand strip with the icon's motif (platform line, grey stubs, yellow
-bus, red train pill), Helvetica Neue (MBTA signage), "Leave 8:51" as a yellow-on-navy departure board, Red Line red primary
-buttons, pill trip bar, trip legs as a rail-and-station-dot line diagram (yellow = next tap, green = done), navy nav bar.
-Dark mode follows the system and matches the icon's navy. Manifest `background_color` is now navy (iOS only picks that up after re-adding to Home Screen).
-
 ### Gotchas
 - **Cron** is UTC with up to ~15 min start delay; `tick` tolerates starting 15 min early or late.
 - **Concurrency:** only `tick.yml` writes state, so `plan.yml` must stay read-only.
