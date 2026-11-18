@@ -1,0 +1,76 @@
+# Copy to config.toml. Run `python3 -m commute keygen` and paste its [ntfy], [webpush] and [actions]
+# sections over the ones below. In GitHub Actions this whole file is stored as the CONFIG_TOML secret.
+
+[mbta]
+api_key = "YOUR_MBTA_V3_KEY"          # free: https://api-v3.mbta.com/register
+
+[ntfy]
+server = "https://ntfy.sh"
+topic = "FROM-KEYGEN"            # notifications for the ntfy app (only used if you don't use the web app's)
+command_topic = "FROM-KEYGEN"    # your phone → planner (taps, notes, "tomorrow arrive 10")
+status_topic = "FROM-KEYGEN"     # planner → web app (current plan, learned times)
+token = ""
+
+[webpush]
+via = "auto"                     # auto = web app notifications once you enable them, ntfy app until then
+private_key = "FROM-KEYGEN"
+public_key = "FROM-KEYGEN"
+subject = "mailto:you@example.com"
+
+[actions]
+state_key = "FROM-KEYGEN"        # encrypts the planner's memory saved in the repo
+
+[places]
+# Your start and end addresses. Shown in messages; they live only in your own (gitignored) config.toml.
+start_address = "123 Example St, Boston, MA"
+end_address = "1 Example Plaza, Cambridge, MA"
+
+[home]
+bus_route = "9"                       # becomes "T9" if/when the Bus Network Redesign renames it
+bus_stop_match = "F St"               # matched against inbound stop names by `setup`
+walk_to_bus_stop_min = 2              # door → F St stop
+walk_to_station_min = 13              # door → Broadway Red Line platform on foot (time it once!)
+walk_stop_to_home_min = 2             # F St stop → door (way home)
+walk_station_to_home_min = 13         # Broadway → door on foot (way home)
+bus_ride_default_min = 6              # F St → Broadway, used only if no history at all
+# F St vs. the Perkins Sq (Dorchester St) timepoint TransitMatters records: inbound buses pass
+# Perkins then F St (~+1 min); outbound pass F St then Perkins (~-1 min).
+fst_offset_from_perkins_in_min = 1.0
+fst_offset_from_perkins_out_min = -1.0
+
+[work]
+walk_kendall_to_desk_min = 4          # Kendall/MIT platform → your end address
+walk_desk_to_kendall_min = 4          # desk → Kendall platform, incl. the office doors
+
+[transfer]
+bus_to_platform_min = 2               # Broadway: off the 9 → northbound platform
+platform_to_bus_min = 2               # Broadway: off the train → outbound 9 stop
+
+[prefs]
+buffer_min = 2
+arrive_by = "09:30"                   # default; change any day from the app ("tomorrow arrive 10")
+leave_work_at = "17:30"               # default; "today leave 4:45", "friday leave 6"
+on_time_confidence = 0.8              # "around 9:30": in by then on 80% of past days. Use 0.9 for stricter.
+workdays = [0, 1, 2, 3, 4]            # Mon=0
+night_notify_at = "21:30"             # night-before plan
+watch_lead_min = 60                   # start watching this long before you'd leave (home and work)
+poll_seconds = 60
+red_gap_alert_min = 8                 # warn when consecutive trains are this far apart
+
+# All the walking/transfer minutes above are just starting guesses. Every trip you log
+# replaces them with your real times (see README → "Logging trips").
+[feedback]
+prior_weight = 2      # how many trips your config guess is "worth" vs. logged trips
+ride_weight = 5       # each of your logged rides counts as this many historical rides
+
+[history]
+tm_api = "https://dashboard-api.labs.transitmatters.org"
+lookback_weekdays = 30
+red_nb_broadway = "70082"
+red_nb_kendall = "70072"
+red_sb_kendall = "70071"
+red_sb_broadway = "70081"
+bus_in_perkins = ["9-1-45"]
+bus_in_broadway = ["9-1-150"]
+bus_out_broadway = ["9-0-150", "9-0-151"]
+bus_out_perkins = ["9-0-21", "9-0-157"]

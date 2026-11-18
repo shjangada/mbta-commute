@@ -1,0 +1,11 @@
+*.pyc
+*.sqlite
+.venv/
+CLAUDE.local.md
+__pycache__/
+cache/
+commute.sqlite
+config.toml
+resolved_stops.json
+setup-code.txt
+state.json

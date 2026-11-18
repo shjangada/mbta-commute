@@ -1,0 +1,35 @@
+name: plan
+# On-demand, READ-ONLY plan (started by the web app's "Find my optimal path" when no watcher is running).
+# Must never write state: only tick.yml does.
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: morning or home
+        default: morning
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COMMUTE_QUIET: "1"
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Write config
+        env:
+          CONFIG_TOML: ${{ secrets.CONFIG_TOML }}
+        run: |
+          printf '%s' "$CONFIG_TOML" > config.toml
+          chmod 600 config.toml
+      - run: python -m commute state-load
+      - run: python -m commute plan "${{ inputs.what }}"

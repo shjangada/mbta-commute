@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Commute">
+<meta name="theme-color" content="#1B2230">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Commute</title>
+<style>
+:root {
+  --bg: #F2F4F6; --surface: #FFFFFF; --ink: #1B2230; --muted: #5D6878; --line: #DCE1E7;
+  --red: #DA291C; --yellow: #FFC72C; --walk: #7C8796; --wait: #E3E7EC; --ok: #1E7A4C;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #12161C; --surface: #1C222B; --ink: #EEF1F5; --muted: #9AA5B4; --line: #2B333E;
+          --wait: #2A313B; --ok: #5CC28B; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%; }
+body { padding: env(safe-area-inset-top) 0 0; }
+main { max-width: 560px; margin: 0 auto; padding: 16px 18px calc(96px + env(safe-area-inset-bottom)); }
+h1 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 6px 0 2px; }
+h2 { font-size: 20px; margin: 28px 0 10px; letter-spacing: -.01em; }
+p { margin: 6px 0; }
+.big { font-size: 58px; font-weight: 800; letter-spacing: -.03em; line-height: 1; margin: 6px 0 4px;
+  font-variant-numeric: tabular-nums; }
+.sub { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); font-size: 14px; }
+.fresh { display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--walk); }
+.dot.live { background: var(--ok); }
+.seg { display: flex; background: var(--wait); border-radius: 10px; padding: 3px; gap: 3px; margin: 4px 0 18px; }
+.seg button { flex: 1; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 600;
+  padding: 7px; border-radius: 8px; }
+.seg button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+/* the trip bar: the one bold thing. Width = time; color = how you're moving. */
+.bar { display: flex; height: 26px; margin: 18px 0 6px; gap: 2px; }
+.bar span { border-radius: 4px; min-width: 3px; }
+.bar .walk { background: var(--walk); }
+.bar .bus { background: var(--yellow); }
+.bar .train { background: var(--red); }
+.bar .wait { background: repeating-linear-gradient(-45deg, var(--wait) 0 5px, transparent 5px 9px);
+  box-shadow: inset 0 0 0 1px var(--line); }
+.ticks { position: relative; height: 34px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; color: var(--muted); }
+.ticks span b { display: block; color: var(--ink); font-weight: 600; }
+.ticks span:first-child { transform: none; }
+.ticks span:last-child { transform: translateX(-100%); text-align: right; }
+.ticks.up { height: 22px; margin-top: 16px; }
+.ticks.up span.mid { transform: translateX(-50%); text-align: center; color: var(--muted); }
+.ticks.up span.mid b { display: inline; }
+.ticks.up + .bar { margin-top: 4px; }
+
+.note { border-left: 4px solid var(--walk); padding: 6px 10px; margin: 8px 0; background: var(--surface);
+  border-radius: 0 8px 8px 0; font-size: 15px; }
+.note.bad { border-color: var(--red); }
+.note.warn { border-color: var(--yellow); }
+.card { background: var(--surface); border-radius: 14px; padding: 14px 16px; margin: 12px 0; }
+.card pre { white-space: pre-wrap; font: inherit; font-size: 15px; margin: 8px 0 0; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+td, th { text-align: left; padding: 8px 6px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+button.primary, button.step { width: 100%; border: 0; border-radius: 14px; font: inherit; font-weight: 700; }
+button.primary { background: var(--ink); color: var(--bg); padding: 15px; font-size: 17px; margin: 16px 0 6px; }
+button.step { background: var(--ink); color: var(--bg); padding: 22px 16px; font-size: 21px; margin: 6px 0; }
+button.ghost { border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit;
+  font-weight: 600; padding: 12px; border-radius: 12px; flex: 1; }
+.row { display: flex; gap: 8px; margin: 8px 0; }
+button:active { opacity: .7; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+ol.steps { list-style: none; padding: 0; margin: 14px 0; }
+ol.steps li { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums; }
+ol.steps li.todo { color: var(--muted); }
+label { display: block; font-size: 14px; color: var(--muted); margin: 12px 0 4px; }
+input, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 11px; }
+input[type=time] { min-height: 46px; }
+.check { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--ink); font-size: 16px; }
+.check input { width: 22px; height: 22px; }
+
+nav { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line);
+  display: flex; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+nav button { flex: 1; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+  font-weight: 600; padding: 8px 0; }
+nav button[aria-current="page"] { color: var(--ink); }
+nav button[aria-current="page"]::before { content: ""; display: block; height: 3px; width: 22px; margin: 0 auto 5px;
+  border-radius: 2px; background: var(--red); }
+nav button::before { content: ""; display: block; height: 3px; margin: 0 auto 5px; }
+#toast { position: fixed; left: 16px; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); margin: 0 auto;
+  max-width: 520px; background: var(--ink); color: var(--bg); padding: 12px 14px; border-radius: 12px;
+  font-size: 15px; opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; pointer-events: none; }
+#toast.show { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- NOW -->
+  <section id="now">
+    <div class="seg" role="group" aria-label="Direction">
+      <button id="segM" aria-pressed="true">To work</button>
+      <button id="segH" aria-pressed="false">Way home</button>
+    </div>
+    <div class="fresh muted"><span class="dot" id="dot"></span><span id="fresh">Loading…</span></div>
+    <div id="nowBody"></div>
+    <button class="primary" id="planBtn">Find my optimal path</button>
+    <div id="tomorrowCard"></div>
+  </section>
+
+  <!-- TRIP LOG -->
+  <section id="trip" class="hidden">
+    <h2>Trip log</h2>
+    <p class="muted">Tap as each thing happens. Your real times replace the planner’s guesses.</p>
+    <div id="tripBody"></div>
+    <label for="atTime">Happened earlier? Set the time, then tap</label>
+    <input type="time" id="atTime">
+    <label for="noteText">Note for this trip</label>
+    <textarea id="noteText" rows="2" placeholder="Second set of stairs was packed"></textarea>
+    <div class="row"><button class="ghost" id="noteBtn">Save note</button></div>
+    <p class="muted" id="queueInfo"></p>
+  </section>
+
+  <!-- DAYS -->
+  <section id="days" class="hidden">
+    <h2>Your days</h2>
+    <p class="muted">Defaults: in by 9:30, leave work 5:30. Change any day; it goes back to normal after.</p>
+    <div id="daysBody"></div>
+  </section>
+
+  <!-- LEARNED -->
+  <section id="learned" class="hidden">
+    <h2>What it has learned</h2>
+    <div id="learnedBody" class="card"></div>
+    <div class="row"><button class="ghost" id="accBtn">Send prediction accuracy</button></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="settings" class="hidden">
+    <h2>Notifications</h2>
+    <p id="pushInfo" class="muted"></p>
+    <button class="primary" id="pushBtn">Turn on notifications</button>
+    <h2>Connection</h2>
+    <label for="setupCode">Setup code (from <code>python3 -m commute keygen</code>)</label>
+    <input id="setupCode" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="ghRepo">GitHub repo, for instant “Find my optimal path” (owner/name)</label>
+    <input id="ghRepo" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you/commute">
+    <label for="ghToken">GitHub token (fine-grained, this repo only, Actions: read and write)</label>
+    <input id="ghToken" type="password" autocomplete="off">
+    <button class="primary" id="saveSettings">Save</button>
+    <p class="muted" id="connInfo"></p>
+  </section>
+</main>
+
+<nav>
+  <button data-tab="now" aria-current="page">Now</button>
+  <button data-tab="trip">Trip</button>
+  <button data-tab="days">Days</button>
+  <button data-tab="learned">Learned</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- storage (this phone only)
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} },
+};
+let cfg = store.get("cfg", {});
+let status = store.get("status", null);
+let dir = new Date().getHours() < 13 ? "morning" : "home";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hm = (m) => { m = Math.round(m); const h = Math.floor(m / 60), mm = m % 60; return `${(h + 11) % 12 + 1}:${String(mm).padStart(2, "0")}`; };
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3500); }
+
+// ---------------------------------------------------------------- talking to the planner (via ntfy)
+// Everything you send goes into an outbox first, so taps made underground are kept with their real time.
+let outbox = store.get("outbox", []);
+async function flush() {
+  if (!cfg.server || !cfg.cmd) return;
+  while (outbox.length) {
+    try {
+      const r = await fetch(`${cfg.server}/${cfg.cmd}`, { method: "POST", body: outbox[0] });
+      if (!r.ok) throw new Error(r.status);
+      outbox.shift(); store.set("outbox", outbox);
+    } catch (_) { break; }
+  }
+  renderQueue();
+}
+function send(text) { outbox.push(text); store.set("outbox", outbox); renderQueue(); flush(); }
+function renderQueue() { $("queueInfo").textContent = outbox.length ? `${outbox.length} waiting to send (no signal). They keep their times.` : ""; }
+
+async function loadStatus() {
+  if (!cfg.server || !cfg.status) { render(); return; }
+  try {
+    const r = await fetch(`${cfg.server}/${cfg.status}/json?poll=1&since=24h`);
+    const lines = (await r.text()).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const last = lines.filter((e) => e.event === "message").pop();
+    if (last) {
+      status = last.attachment ? await (await fetch(last.attachment.url)).json() : JSON.parse(last.message);
+      store.set("status", status);
+    }
+  } catch (_) { /* offline: keep showing the last status */ }
+  render();
+}
+
+// ---------------------------------------------------------------- NOW
+function ago(t) { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }
+function noteClass(n) { return n.startsWith("❌") ? "bad" : n.startsWith("⚠") || n.startsWith("🚇") ? "warn" : ""; }
+
+function tripBar(legs) {
+  if (!legs || !legs.length) return "";
+  const a = legs[0][1], b = legs[legs.length - 1][2], span = Math.max(b - a, 1);
+  const segs = legs.map(([k, s, e]) => `<span class="${k}" style="flex:${Math.max(e - s, .3)}" title="${k}"></span>`).join("");
+  const bus = legs.find((l) => l[0] === "bus"), train = legs.find((l) => l[0] === "train");
+  const pos = (t) => `left:${Math.min(92, Math.max(8, (100 * (t - a)) / span))}%`;
+  const above = [bus && `<span class="mid" style="${pos(bus[1])}">9 bus <b>${hm(bus[1])}</b></span>`,
+                 train && `<span class="mid" style="${pos(train[1])}">Red <b>${hm(train[1])}</b></span>`].filter(Boolean).join("");
+  const below = `<span><b>${hm(a)}</b>Leave</span><span style="left:100%"><b>${hm(b)}</b>Desk</span>`;
+  return `<div class="ticks up">${above}</div><div class="bar" aria-hidden="true">${segs}</div><div class="ticks">${below}</div>`;
+}
+
+function render() {
+  const live = status && status.watch && Date.now() / 1000 - status.t < 12 * 60;
+  $("dot").classList.toggle("live", !!live);
+  $("fresh").textContent = !cfg.cmd ? "Not connected. Add your setup code in Settings."
+    : !status ? "No plan yet. It appears after the first scheduled check."
+    : live ? `Watching live, updated ${ago(status.t)}` : `Updated ${ago(status.t)}`;
+  $("segM").setAttribute("aria-pressed", dir === "morning");
+  $("segH").setAttribute("aria-pressed", dir === "home");
+  $("planBtn").textContent = dir === "morning" ? "Find my optimal path" : "Find my best way home";
+  let html = "";
+  const today = status && status.today;
+  if (today && today.off) html += `<p class="sub">No commute today.</p>`;
+  if (dir === "morning") {
+    const m = status && status.morning;
+    if (m && m.leave) {
+      html += `<div class="big">Leave ${esc(m.leave)}</div><div class="sub">Desk ~${esc(m.arrive)}</div>` + tripBar(m.legs);
+      html += `<p>${esc(m.best)}</p>`;
+      if (m.alt) html += `<p class="muted">Earliest arrival instead: ${esc(m.alt)}</p>`;
+      html += (m.notes || []).map((n) => `<div class="note ${noteClass(n)}">${esc(n)}</div>`).join("");
+      html += `<p class="muted">Live plan from ${ago(m.t)}.</p>`;
+    } else if (today && today.ready) {
+      html += `<div class="big">Ready ${esc(today.ready)}</div><div class="sub">In by ${esc(today.arrive)}</div><div class="card"><pre>${esc(today.plan)}</pre></div>`;
+    } else if (today) {
+      html += `<div class="big">In by ${esc(today.arrive)}</div><p class="muted">Live alerts start an hour before you’d leave.</p>`;
+    }
+  } else {
+    const h = status && status.home;
+    if (h && h.rows) {
+      html += `<p class="sub">${esc(h.best)}</p>`;
+      html += `<table><tr><th>Train</th><th>Leave desk</th><th>At Broadway</th><th>Home</th></tr>` +
+        h.rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("") + `</table>`;
+      html += `<p class="muted">At Broadway = which 9 you’d catch (* schedule only) or walking, with odds. Plan from ${ago(h.t)}.</p>`;
+      html += (h.notes || []).map((n) => `<div class="note ${noteClass(n)}">${esc(n)}</div>`).join("");
+    } else if (today) {
+      html += `<div class="big">Out ${esc(today.leave_work)}</div><p class="muted">Way-home alerts start an hour before.</p>`;
+    }
+  }
+  $("nowBody").innerHTML = html;
+  const tm = status && status.tomorrow;
+  $("tomorrowCard").innerHTML = tm && new Date().getHours() >= 17
+    ? `<div class="card"><b>Tomorrow</b>${tm.off ? "<p>No commute.</p>" : tm.ready ? `<p class="sub">Be ready by ${esc(tm.ready)}</p><pre>${esc(tm.plan)}</pre>` : `<p>In by ${esc(tm.arrive)}. Plan arrives around 9:30pm.</p>`}</div>` : "";
+  renderTrip(); renderDays(); renderLearned();
+}
+
+async function planNow() {
+  const what = dir === "morning" ? "morning" : "home";
+  const live = status && status.watch && Date.now() / 1000 - status.t < 12 * 60;
+  if (live) { send(what === "morning" ? "plan_morning" : "plan_home"); toast("Asked the live watcher. Answer within a minute."); }
+  else if (cfg.repo && cfg.token) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${cfg.repo}/actions/workflows/plan.yml/dispatches`, {
+        method: "POST", headers: { Authorization: `Bearer ${cfg.token}`, Accept: "application/vnd.github+json" },
+        body: JSON.stringify({ ref: "main", inputs: { what } }) });
+      if (r.status !== 204) throw new Error(r.status);
+      toast("Planning now. You’ll get a notification in about a minute.");
+    } catch (e) { toast(`Couldn’t start a plan on GitHub (${e.message}). Check the repo and token in Settings.`); return; }
+  } else { send(what === "morning" ? "plan_morning" : "plan_home"); toast("Sent. Add a GitHub token in Settings for instant answers."); return; }
+  let n = 0; const iv = setInterval(() => { loadStatus(); if (++n > 12) clearInterval(iv); }, 15000);
+}
+
+// ---------------------------------------------------------------- TRIP
+const STEPS = {
+  morning: [["left_home", "Left home"], ["at_stop", "At the F St stop"], ["on_bus", "On the bus"], ["off_bus", "Off the bus at Broadway"],
+            ["on_platform", "On the platform"], ["on_train", "On the train"], ["off_train", "Off at Kendall"], ["at_dest", "At my desk"]],
+  home: [["left_desk", "Left my desk"], ["on_platform", "On the Kendall platform"], ["on_train", "On the train"], ["off_train", "Off at Broadway"],
+         ["at_stop", "At the Broadway bus stop"], ["on_bus", "On the bus"], ["off_bus", "Off at F St"], ["at_dest", "Home"]],
+};
+const WALK_KEEP = { morning: ["on_platform", "on_train", "off_train", "at_dest"], home: ["at_dest"] };
+let trip = store.get("trip", null);   // {dir, steps:[[step, ts]], walking}
+if (trip && Date.now() / 1000 - trip.steps[0][1] > 3 * 3600) { trip = null; store.set("trip", null); }
+
+function nextSteps(t) {
+  const seq = STEPS[t.dir].map((s) => s[0]);
+  const done = t.steps.map((s) => s[0]);
+  const last = Math.max(-1, ...done.map((s) => seq.indexOf(s)));
+  let rest = seq.slice(last + 1);
+  if (t.walking) rest = rest.filter((s) => WALK_KEEP[t.dir].includes(s));
+  return rest;
+}
+function tapTime() {
+  const v = $("atTime").value;
+  if (!v) return Date.now() / 1000;
+  const [h, m] = v.split(":").map(Number); const d = new Date(); d.setHours(h, m, 0, 0);
+  $("atTime").value = ""; return d.getTime() / 1000;
+}
+function logStep(step, d) {
+  const ts = tapTime();
+  if (!trip) trip = { dir: d, steps: [], walking: false };
+  if (step === "walking") trip.walking = true; else trip.steps.push([step, ts]);
+  send(`log:${step} @ts=${ts.toFixed(0)}`);
+  if (step === "at_dest") { toast("Trip logged. Summary coming in your next update."); trip = null; }
+  store.set("trip", trip); renderTrip();
+}
+function undo() {
+  if (!trip) return;
+  if (trip.walking && !trip.steps.length) trip.walking = false; else trip.steps.pop();
+  if (!trip.steps.length && !trip.walking) trip = null;
+  send("undo"); store.set("trip", trip); renderTrip();
+}
+function renderTrip() {
+  const b = $("tripBody");
+  if (!trip) {
+    b.innerHTML = `<button class="step" data-step="left_home" data-dir="morning">🚪 Leaving home</button>
+                   <button class="step" data-step="left_desk" data-dir="home">🏢 Leaving my desk</button>`;
+    return;
+  }
+  const names = Object.fromEntries(STEPS[trip.dir]);
+  const rest = nextSteps(trip);
+  const done = trip.steps.map(([s, ts]) => `<li><span>✓ ${esc(names[s] || s)}</span><span>${hm(new Date(ts * 1000).getHours() * 60 + new Date(ts * 1000).getMinutes())}</span></li>`).join("");
+  const todo = rest.map((s) => `<li class="todo"><span>${esc(names[s])}</span><span></span></li>`).join("");
+  let btns = rest.length ? `<button class="step" data-step="${rest[0]}" data-dir="${trip.dir}">${esc(names[rest[0]])}</button>` : "";
+  const extra = [];
+  if (!trip.walking && rest.length && ["at_stop", "on_bus"].includes(rest[0])) extra.push(`<button class="ghost" data-step="walking" data-dir="${trip.dir}">🚶 Walking instead</button>`);
+  else if (rest.length > 1) extra.push(`<button class="ghost" data-step="${rest[1]}" data-dir="${trip.dir}">Skip to ${esc(names[rest[1]])}</button>`);
+  extra.push(`<button class="ghost" id="undoBtn">↩ Undo</button>`);
+  b.innerHTML = `${btns}<div class="row">${extra.join("")}</div><ol class="steps">${done}${todo}</ol>`;
+}
+
+// ---------------------------------------------------------------- DAYS
+const to12 = (v, pm) => { const [h, m] = v.split(":").map(Number); return `${(h + 11) % 12 + 1}:${String(m).padStart(2, "0")}${h >= 12 ? "pm" : "am"}`; };
+const to24 = (s) => { const m = /(\d+):(\d+)\s*([ap]m)?/i.exec(s || ""); if (!m) return ""; let h = +m[1]; const ap = (m[3] || "").toLowerCase();
+  if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; if (!ap && h < 7) h += 12; return `${String(h).padStart(2, "0")}:${m[2]}`; };
+function renderDays() {
+  const days = [["today", status && status.today], ["tomorrow", status && status.tomorrow]];
+  $("daysBody").innerHTML = days.map(([w, d]) => {
+    const arrive = to24(d && d.arrive) || "09:30", leave = to24(d && d.leave_work) || "17:30";
+    return `<div class="card"><b>${w === "today" ? "Today" : "Tomorrow"}</b>${d && d.changed ? ` <span class="muted">changed</span>` : ""}
+      <label for="${w}A">In by</label><input type="time" id="${w}A" value="${arrive}">
+      <label for="${w}L">Leave work</label><input type="time" id="${w}L" value="${leave}">
+      <label class="check"><input type="checkbox" id="${w}Off" ${d && d.off ? "checked" : ""}> No commute</label>
+      <div class="row"><button class="ghost" data-save="${w}">Save ${w}</button><button class="ghost" data-reset="${w}">Back to default</button></div></div>`;
+  }).join("");
+}
+function saveDay(w) {
+  if ($(`${w}Off`).checked) send(`${w} off`);
+  else send(`${w} on arrive ${to12($(`${w}A`).value)} leave ${to12($(`${w}L`).value)}`);
+  toast(`Saved. ${w === "tomorrow" ? "If tonight’s plan already went out, a new one follows." : ""}`);
+}
+
+// ---------------------------------------------------------------- LEARNED
+function renderLearned() {
+  const l = status && status.learned;
+  $("learnedBody").innerHTML = l && l.length ? l.map((x) => `<p>${esc(x)}</p>`).join("") : "<p>Nothing yet. Log a few trips in the Trip tab.</p>";
+}
+
+// ---------------------------------------------------------------- SETTINGS + notifications
+function b64ToBytes(s) { s = s.replace(/-/g, "+").replace(/_/g, "/"); s += "=".repeat((4 - s.length % 4) % 4); return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); }
+function pushSupport() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  if (!standalone) return { ok: false, msg: "Open this from your Home Screen first: Share, then Add to Home Screen." };
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return { ok: false, msg: "This iPhone’s iOS is too old for web app notifications (needs 16.4 or later). Use the ntfy app for alerts instead; everything else here still works." };
+  if (Notification.permission === "denied") return { ok: false, msg: "Notifications are blocked. Turn them on in the iPhone’s Settings, Notifications, Commute." };
+  if (Notification.permission === "granted") return { ok: true, msg: "Notifications are on. Tap the button again if they stop arriving." };
+  return { ok: true, msg: "Get alerts here instead of the ntfy app." };
+}
+async function enablePush() {
+  const sup = pushSupport();
+  if (!sup.ok) { toast(sup.msg); return; }
+  if (!status || !status.vapid) { toast("Waiting for the first update from the planner. Try again after it runs."); return; }
+  try {
+    if ((await Notification.requestPermission()) !== "granted") { toast("Notifications weren’t allowed."); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(status.vapid) });
+    send("subscribe " + JSON.stringify(sub));
+    toast("Done. A confirmation arrives at the planner’s next check.");
+  } catch (e) { toast(`Couldn’t turn on notifications: ${e.message}`); }
+  renderSettings();
+}
+function renderSettings() {
+  $("pushInfo").textContent = pushSupport().msg;
+  $("ghRepo").value = cfg.repo || ""; $("ghToken").value = cfg.token || "";
+  $("connInfo").textContent = cfg.cmd ? `Connected to ${cfg.server.replace("https://", "")}.` : "Not connected yet.";
+}
+function saveSettings() {
+  const code = $("setupCode").value.trim();
+  if (code) {
+    try { const c = JSON.parse(atob(code.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - code.length % 4) % 4)));
+      cfg = { ...cfg, server: c.server, cmd: c.cmd, status: c.status }; $("setupCode").value = "";
+    } catch (_) { toast("That setup code didn’t read correctly. Copy it again from keygen."); return; }
+  }
+  cfg.repo = $("ghRepo").value.trim(); cfg.token = $("ghToken").value.trim();
+  store.set("cfg", cfg); renderSettings(); toast("Saved."); flush(); loadStatus();
+}
+
+// ---------------------------------------------------------------- wiring
+function show(tab) {
+  for (const s of document.querySelectorAll("main > section")) s.classList.toggle("hidden", s.id !== tab);
+  for (const b of document.querySelectorAll("nav button")) {
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
+  if (tab === "settings") renderSettings();
+  scrollTo(0, 0);
+}
+document.querySelector("nav").addEventListener("click", (e) => { const t = e.target.closest("button"); if (t) show(t.dataset.tab); });
+$("segM").onclick = () => { dir = "morning"; render(); };
+$("segH").onclick = () => { dir = "home"; render(); };
+$("planBtn").onclick = planNow;
+$("tripBody").addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.id === "undoBtn") return undo();
+  logStep(t.dataset.step, t.dataset.dir);
+});
+$("noteBtn").onclick = () => { const v = $("noteText").value.trim(); if (!v) return; send(`note ${v}`); $("noteText").value = ""; toast("Note saved."); };
+$("daysBody").addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.save) saveDay(t.dataset.save);
+  if (t.dataset.reset) { send(`${t.dataset.reset} default`); toast("Back to default."); }
+});
+$("accBtn").onclick = () => { send("accuracy"); toast("Requested. It arrives at the planner’s next check."); };
+$("pushBtn").onclick = enablePush;
+$("saveSettings").onclick = saveSettings;
+addEventListener("online", flush);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { flush(); loadStatus(); } });
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
+if (!cfg.cmd) show("settings");
+render(); renderQueue(); flush(); loadStatus();
+</script>
+</body>
+</html>
