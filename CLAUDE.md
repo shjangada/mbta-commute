@@ -83,6 +83,14 @@ published only on change plus a 10-min heartbeat.
   (watcher stops after you leave or log "left home").
 
 ## Feedback / learning (commute/feedback.py)
+- **Trip tab = leg cards** (decided 2026-11-18). Tapping "Leaving home" / "Leaving my desk" opens that direction's legs,
+  each a start tap and an end tap with the duration shown once both exist:
+  - To work: home → F St stop · Broadway bus stop → Broadway platform · Kendall/MIT platform → desk.
+  - Home: desk → Kendall platform · Broadway platform → bus stop · F St stop → home.
+  - Optional taps (on bus, on train) feed ride times; "Walking instead" swaps in the walking legs.
+  - **A leg missing either tap is scrapped** (feedback.py only learns segments with both ends); the rest of the trip still counts.
+  - Learned value is still prior blended toward the user's 75th percentile (not a plain average, so buffers cover
+    slower days). User said "average it out"; revisit if they want the mean.
 - Trip log steps:
   - Morning: left_home, at_stop, on_bus, off_bus, on_platform, on_train, off_train, at_dest.
   - Evening: left_desk, … , at_dest.

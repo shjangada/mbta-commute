@@ -44,6 +44,7 @@ p { margin: 6px 0; }
 /* the trip bar: the one bold thing. Width = time; color = how you're moving. */
 .bar { display: flex; height: 26px; margin: 18px 0 6px; gap: 2px; }
 .bar span { border-radius: 4px; min-width: 3px; }
+b.ok { color: var(--ok); }
 .bar .walk { background: var(--walk); }
 .bar .bus { background: var(--yellow); }
 .bar .train { background: var(--red); }
@@ -294,24 +295,9 @@ async function planNow() {
 }
 
 // ---------------------------------------------------------------- TRIP
-const STEPS = {
-  morning: [["left_home", "Left home"], ["at_stop", "At the F St stop"], ["on_bus", "On the bus"], ["off_bus", "Off the bus at Broadway"],
-            ["on_platform", "On the platform"], ["on_train", "On the train"], ["off_train", "Off at Kendall"], ["at_dest", "At my desk"]],
-  home: [["left_desk", "Left my desk"], ["on_platform", "On the Kendall platform"], ["on_train", "On the train"], ["off_train", "Off at Broadway"],
-         ["at_stop", "At the Broadway bus stop"], ["on_bus", "On the bus"], ["off_bus", "Off at F St"], ["at_dest", "Home"]],
-};
-const WALK_KEEP = { morning: ["on_platform", "on_train", "off_train", "at_dest"], home: ["at_dest"] };
 let trip = store.get("trip", null);   // {dir, steps:[[step, ts]], walking}
 if (trip && Date.now() / 1000 - trip.steps[0][1] > 3 * 3600) { trip = null; store.set("trip", null); }
 
-function nextSteps(t) {
-  const seq = STEPS[t.dir].map((s) => s[0]);
-  const done = t.steps.map((s) => s[0]);
-  const last = Math.max(-1, ...done.map((s) => seq.indexOf(s)));
-  let rest = seq.slice(last + 1);
-  if (t.walking) rest = rest.filter((s) => WALK_KEEP[t.dir].includes(s));
-  return rest;
-}
 function tapTime() {
   const v = $("atTime").value;
   if (!v) return Date.now() / 1000;
@@ -328,10 +314,30 @@ function logStep(step, d) {
 }
 function undo() {
   if (!trip) return;
-  if (trip.walking && !trip.steps.length) trip.walking = false; else trip.steps.pop();
+  if (trip.walking && !trip.steps.length) trip.walking = false;
+  else if (trip.steps.length) { const i = trip.steps.reduce((m, x, j, a) => (x[1] >= a[m][1] ? j : m), 0); trip.steps.splice(i, 1); }
   if (!trip.steps.length && !trip.walking) trip = null;
   send("undo"); store.set("trip", trip); renderTrip();
 }
+// Each trip is a few legs: a start tap and an end tap. Only complete legs are learned from; a leg with a
+// missing tap is simply not counted (the planner ignores it too).
+const LEGS = {
+  morning: [
+    { a: "left_home", b: "at_stop", title: "Home → bus stop", aL: "Left home", bL: "At the F St stop" },
+    { a: "off_bus", b: "on_platform", title: "Broadway: bus stop → platform", aL: "Off the bus at Broadway", bL: "On the Broadway platform" },
+    { a: "off_train", b: "at_dest", title: "Kendall/MIT platform → desk", aL: "Off the train at Kendall", bL: "At my desk" }],
+  home: [
+    { a: "left_desk", b: "on_platform", title: "Desk → Kendall platform", aL: "Left my desk", bL: "On the Kendall platform" },
+    { a: "off_train", b: "at_stop", title: "Broadway: platform → bus stop", aL: "Off the train at Broadway", bL: "At the Broadway bus stop" },
+    { a: "off_bus", b: "at_dest", title: "F St stop → home", aL: "Off the bus at F St", bL: "Home" }],
+};
+const WALK_LEGS = {
+  morning: [{ a: "left_home", b: "on_platform", title: "Walking: home → Broadway platform", aL: "Left home", bL: "On the Broadway platform" },
+            LEGS.morning[2]],
+  home: [LEGS.home[0], { a: "off_train", b: "at_dest", title: "Walking: Broadway → home", aL: "Off the train at Broadway", bL: "Home" }],
+};
+const RIDE_TAPS = { morning: [["on_bus", "On the bus"], ["on_train", "On the train"]], home: [["on_train", "On the train"], ["on_bus", "On the bus"]] };
+const clock = (ts) => { const d = new Date(ts * 1000); return hm(d.getHours() * 60 + d.getMinutes()); };
 function renderTrip() {
   const b = $("tripBody");
   if (!trip) {
@@ -339,16 +345,22 @@ function renderTrip() {
                    <button class="step" data-step="left_desk" data-dir="home">🏢 Leaving my desk</button>`;
     return;
   }
-  const names = Object.fromEntries(STEPS[trip.dir]);
-  const rest = nextSteps(trip);
-  const done = trip.steps.map(([s, ts]) => `<li><span>✓ ${esc(names[s] || s)}</span><span>${hm(new Date(ts * 1000).getHours() * 60 + new Date(ts * 1000).getMinutes())}</span></li>`).join("");
-  const todo = rest.map((s) => `<li class="todo"><span>${esc(names[s])}</span><span></span></li>`).join("");
-  let btns = rest.length ? `<button class="step" data-step="${rest[0]}" data-dir="${trip.dir}">${esc(names[rest[0]])}</button>` : "";
-  const extra = [];
-  if (!trip.walking && rest.length && ["at_stop", "on_bus"].includes(rest[0])) extra.push(`<button class="ghost" data-step="walking" data-dir="${trip.dir}">🚶 Walking instead</button>`);
-  else if (rest.length > 1) extra.push(`<button class="ghost" data-step="${rest[1]}" data-dir="${trip.dir}">Skip to ${esc(names[rest[1]])}</button>`);
-  extra.push(`<button class="ghost" id="undoBtn">↩ Undo</button>`);
-  b.innerHTML = `${btns}<div class="row">${extra.join("")}</div><ol class="steps">${done}${todo}</ol>`;
+  const at = Object.fromEntries(trip.steps.slice().reverse());   // first tap of each step wins
+  const legs = (trip.walking ? WALK_LEGS : LEGS)[trip.dir];
+  const cards = legs.map((l) => {
+    const ta = at[l.a], tb = at[l.b];
+    let body;
+    if (ta && tb) body = `<b class="ok">✓ ${((tb - ta) / 60).toFixed(1)} min</b> <span class="muted">${clock(ta)} → ${clock(tb)}</span>`;
+    else if (ta) body = `<span class="muted">${esc(l.aL)} ${clock(ta)}</span><button class="step" data-step="${l.b}" data-dir="${trip.dir}">${esc(l.bL)}</button>`;
+    else if (tb) body = `<span class="muted">${esc(l.bL)} ${clock(tb)}. Start missed, so this part won’t count.</span>`;
+    else body = `<button class="step" data-step="${l.a}" data-dir="${trip.dir}">${esc(l.aL)}</button>`;
+    return `<div class="card"><b>${esc(l.title)}</b><div>${body}</div></div>`;
+  }).join("");
+  const rides = RIDE_TAPS[trip.dir].filter(([s]) => !at[s]).map(([s, n]) => `<button class="ghost" data-step="${s}" data-dir="${trip.dir}">${esc(n)}</button>`).join("");
+  const walk = trip.walking ? "" : `<button class="ghost" data-step="walking" data-dir="${trip.dir}">🚶 Walking instead of the bus</button>`;
+  b.innerHTML = `${cards}
+    <p class="muted">Optional, for ride times:</p><div class="row">${rides}</div>
+    <div class="row">${walk}<button class="ghost" id="undoBtn">↩ Undo</button><button class="ghost" id="endBtn">Finish trip</button></div>`;
 }
 
 // ---------------------------------------------------------------- DAYS
@@ -433,6 +445,7 @@ $("planBtn").onclick = planNow;
 $("tripBody").addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.id === "undoBtn") return undo();
+  if (t.id === "endBtn") { send("end"); trip = null; store.set("trip", null); renderTrip(); toast("Trip closed. Parts without both taps were left out."); return; }
   logStep(t.dataset.step, t.dataset.dir);
 });
 $("noteBtn").onclick = () => { const v = $("noteText").value.trim(); if (!v) return; send(`note ${v}`); $("noteText").value = ""; toast("Note saved."); };
